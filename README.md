@@ -272,6 +272,30 @@ cadence instead of replaying the backlog). State lives in
 in `<serve_dir>/report-YYYY-MM-DD.md`. `enabled: false` takes a node out of
 the rotation without deleting it. Ctrl-C stops the loop; state is always kept.
 
+### Serve-mode governance trio (v0.4)
+
+Three small mechanisms that keep a resident tree cheap and safe — all
+configured per node, all stdlib, all visible in `swarm-tree status`:
+
+- **Trigger condition** (`trigger:`): a shell command run before each tick.
+  Its stdout is hashed; when the hash is unchanged since the last tick, the
+  LLM call is skipped for $0.00. A failing check fails open — the node still
+  runs, so a broken sensor can never silence an agent.
+- **Owner action queue**: any node output line starting with `DECISION:` is
+  harvested into a queue in `state.json`. Every briefing ends with a
+  `## 待你拍板 (Owner Action Queue)` section, and `swarm-tree queue` lists
+  what's pending (`--clear` empties it after you've handled the items).
+  Agents prepare everything up to the last click; humans make the call.
+- **Per-node budget** (`budget_usd:`): a cumulative USD cap per node,
+  tracked in `state.json` across restarts. Once a node's lifetime spend
+  reaches its budget, its ticks are skipped with a `budget-exceeded` status
+  until you raise the cap. `status` shows `$spent/$budget` per node.
+
+```bash
+swarm-tree queue --tree tree.yaml            # pending owner decisions
+swarm-tree queue --tree tree.yaml --clear    # empty the queue
+```
+
 ## Rules enforced on the tree
 
 - Each node needs `name`, `provider`, `model`, `role`; `children` is optional.
