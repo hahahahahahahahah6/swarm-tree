@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>swarm-tree studio</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js"></script>
+<style>
+:root{--bg:#0c0e12;--panel:#13161c;--panel2:#1a1e26;--line:#252a34;--line2:#343b48;--text:#e6e8ec;--mute:#8a93a3;--acc:#7c9cff;--err:#ff6b6b;--ok:#4ade80;--key:#9db4ff}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:13px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+code,pre,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+button{font:inherit;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:6px 11px;cursor:pointer;white-space:nowrap}
+button:hover:not(:disabled){border-color:var(--line2);background:#20252f}
+button.pri{background:var(--acc);border-color:var(--acc);color:#0b0d12;font-weight:600}
+button.pri:hover:not(:disabled){background:#93adff}
+button.danger:hover:not(:disabled){border-color:var(--err);color:var(--err)}
+button:disabled{opacity:.4;cursor:not-allowed}
+input,select,textarea{font:inherit;color:var(--text);background:#0e1116;border:1px solid var(--line);border-radius:6px;padding:7px 9px;width:100%}
+select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--mute) 50%),linear-gradient(135deg,var(--mute) 50%,transparent 50%);background-position:calc(100% - 15px) 52%,calc(100% - 10px) 52%;background-size:5px 5px;background-repeat:no-repeat;padding-right:26px}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}
+input::placeholder,textarea::placeholder{color:#4f5664}
+textarea{resize:vertical;min-height:120px}
+.bad{border-color:var(--err)!important}
+header{min-height:52px;display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 14px;border-bottom:1px solid var(--line);background:var(--panel)}
+header h1{font-size:14px;font-weight:650;margin:0 14px 0 0;letter-spacing:.2px}
+header h1 span{color:var(--acc)}
+.sep{width:1px;height:20px;background:var(--line);margin:0 4px}
+.sp{flex:1}
+#status{font-size:12px;padding:4px 10px;border-radius:999px;cursor:pointer;border:1px solid transparent}
+#status.ok{color:var(--ok);background:rgba(74,222,128,.08);border-color:rgba(74,222,128,.25)}
+#status.err{color:var(--err);background:rgba(255,107,107,.08);border-color:rgba(255,107,107,.3)}
+#main{display:grid;grid-template-columns:1fr 380px;height:calc(100vh - 52px)}
+#left{display:flex;flex-direction:column;min-width:0;min-height:0;border-right:1px solid var(--line)}
+#canvas{flex:1;position:relative;overflow:hidden;cursor:grab;touch-action:none;background-color:var(--bg);background-image:radial-gradient(#1b1f28 1px,transparent 1px);background-size:22px 22px}
+#canvas.drag{cursor:grabbing}
+#world{position:absolute;left:0;top:0;transform-origin:0 0}
+.edges{position:absolute;left:0;top:0;overflow:visible;pointer-events:none}
+.edges path{fill:none;stroke:#394151;stroke-width:1.6}
+.node{position:absolute;width:196px;height:66px;background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--pc);border-radius:10px;padding:9px 12px;cursor:pointer;user-select:none;transition:border-color .12s,box-shadow .12s}
+.node:hover{border-color:var(--line2);border-left-color:var(--pc)}
+.node.sel{box-shadow:0 0 0 2px var(--acc),0 8px 28px rgba(0,0,0,.45)}
+.node.bad::after{content:"!";position:absolute;top:-7px;right:-7px;width:16px;height:16px;border-radius:50%;background:var(--err);color:#120707;font:700 11px/16px system-ui;text-align:center}
+.nt{display:flex;align-items:center;gap:6px}
+.nt b{flex:1;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nt b.empty{color:var(--mute);font-style:italic;font-weight:500}
+.dp{font-size:10px;color:var(--mute);border:1px solid var(--line);border-radius:4px;padding:0 5px}
+.nm{margin-top:6px;font-size:11.5px;color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nm i{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--pc);margin-right:6px;vertical-align:1px}
+.tb{position:absolute;top:calc(100% + 7px);left:50%;transform:translateX(-50%);display:flex;gap:4px;z-index:2}
+.tb button{font-size:11.5px;padding:3px 9px;background:var(--panel2)}
+.ctl{position:absolute;right:12px;bottom:12px;display:flex;gap:4px}
+.ctl button{width:32px;padding:5px 0}
+.hint{color:var(--mute);font-size:12px}
+.chint{position:absolute;left:12px;bottom:14px;pointer-events:none}
+#bottom{height:34vh;min-height:150px;display:flex;flex-direction:column;border-top:1px solid var(--line);background:var(--panel)}
+.tabs{display:flex;align-items:center;gap:2px;padding:6px 8px;border-bottom:1px solid var(--line)}
+.tab{background:none;border:none;color:var(--mute);padding:5px 10px;border-radius:6px}
+.tab.on{color:var(--text);background:var(--panel2)}
+.tab .n{color:var(--err);margin-left:4px}
+#yaml{flex:1;margin:0;overflow:auto;padding:12px 16px;font-size:12.5px;line-height:1.55;color:#c9ced8;white-space:pre}
+#yaml .k{color:var(--key)}#yaml .d{color:var(--mute)}
+#probs{flex:1;overflow:auto;padding:6px 8px;display:none}
+.pr{display:flex;gap:10px;padding:7px 10px;border-radius:6px;cursor:pointer}
+.pr:hover{background:var(--panel2)}
+.pr b{color:var(--err);font-weight:600;min-width:110px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#right{overflow:auto;background:var(--panel)}
+.sec{padding:16px;border-bottom:1px solid var(--line)}
+.sh{display:flex;align-items:center;justify-content:space-between;font-weight:650;margin-bottom:12px}
+.pill{font-size:11px;font-weight:500;color:var(--mute);border:1px solid var(--line);border-radius:999px;padding:1px 8px}
+.fl{display:block;margin-bottom:12px}
+.fl>span{display:block;font-size:11.5px;color:var(--mute);margin-bottom:5px;text-transform:uppercase;letter-spacing:.5px}
+.em{color:var(--err);font-size:12px;margin-top:4px}
+.em:empty{display:none}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
+.row{display:flex;gap:8px;align-items:center}
+details>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;user-select:none}
+details>summary::-webkit-details-marker{display:none}
+details>summary::before{content:"▸";color:var(--mute);transition:transform .15s}
+details[open]>summary::before{transform:rotate(90deg)}
+.sub{margin:4px 0 12px;padding:12px;border:1px solid var(--line);border-radius:8px;background:#11141a}
+.sub>summary{font-size:12px;color:var(--mute)}
+.sub[open]>summary{margin-bottom:10px}
+.sw{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.sw input{display:none}
+.sw i{width:36px;height:20px;border-radius:999px;background:#2a303b;position:relative;cursor:pointer;transition:background .15s;flex:none}
+.sw i::after{content:"";position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:#cfd4dc;transition:left .15s}
+.sw input:checked+i{background:var(--acc)}
+.sw input:checked+i::after{left:19px;background:#0b0d12}
+.modal{position:fixed;inset:0;background:rgba(5,6,9,.7);display:flex;align-items:center;justify-content:center;z-index:20;padding:16px}
+.modal[hidden]{display:none}
+.box{width:min(680px,100%);background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px}
+.box textarea{min-height:300px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px}
+.filebtn{border:1px solid var(--line);border-radius:6px;padding:6px 11px;cursor:pointer;background:var(--panel2)}
+#toast{position:fixed;left:50%;bottom:22px;transform:translate(-50%,20px);opacity:0;background:var(--panel2);border:1px solid var(--line2);padding:9px 14px;border-radius:8px;transition:.2s;z-index:30;max-width:min(560px,90vw);pointer-events:none}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+#toast.err{border-color:var(--err);color:#ffd2d2}
+@media (max-width:860px){#main{grid-template-columns:1fr;height:auto}#left{height:80vh;border-right:none}#right{border-top:1px solid var(--line)}}
+</style>
+</head>
+<body>
+<header>
+  <h1>swarm-tree <span>studio</span></h1>
+  <button id="bNew">New tree</button>
+  <button id="bEx">Load example</button>
+  <button id="bImp">Import</button>
+  <span class="sep"></span>
+  <button id="bYaml">Export YAML</button>
+  <button id="bJson">Export JSON</button>
+  <button id="bCopy" class="pri">Copy YAML</button>
+  <span class="sp"></span>
+  <span id="status"></span>
+</header>
+<div id="main">
+  <div id="left">
+    <div id="canvas">
+      <div id="world"></div>
+      <span class="hint chint">Drag to pan · scroll to zoom · Del removes selected node</span>
+      <div class="ctl"><button id="zOut" title="Zoom out">−</button><button id="zIn" title="Zoom in">+</button><button id="zFit" title="Fit to view">⤢</button></div>
+    </div>
+    <div id="bottom">
+      <div class="tabs">
+        <button class="tab on" data-tab="yaml">YAML preview</button>
+        <button class="tab" data-tab="probs">Problems<span class="n" id="pc"></span></button>
+      </div>
+      <pre id="yaml" class="mono"></pre>
+      <div id="probs"></div>
+    </div>
+  </div>
+  <aside id="right">
+    <div class="sec" id="insp"></div>
+    <div class="sec" id="glob">
+      <details open id="gdet">
+        <summary><b>Global settings</b><span class="pill" style="margin-left:auto">root</span></summary>
+        <div style="margin-top:14px">
+          <label class="sw"><span>summary_mode<div class="hint">Children pass compact summaries up</div></span><input type="checkbox" data-g="summary_mode"><i></i></label>
+          <div class="em" data-e="summary_mode" style="margin:-6px 0 10px"></div>
+          <div class="fl"><span>Summarizer (optional)</span>
+            <div class="grid2">
+              <div><select data-g="sum.provider"></select><div class="em" data-e="sum.provider"></div></div>
+              <div><input data-g="sum.model" spellcheck="false" placeholder="model"><div class="em" data-e="sum.model"></div></div>
+            </div>
+          </div>
+          <div class="grid2">
+            <label class="fl"><span>max_concurrency</span><input data-g="max_concurrency" inputmode="numeric"><div class="em" data-e="max_concurrency"></div></label>
+            <label class="fl"><span>timeout (secs)</span><input data-g="timeout" inputmode="decimal"><div class="em" data-e="timeout"></div></label>
+            <label class="fl"><span>max_children</span><input data-g="max_children" inputmode="numeric"><div class="em" data-e="max_children"></div></label>
+          </div>
+          <p class="hint" style="margin:2px 0 4px">Output length is a CLI flag, not part of the file: <code>swarm-tree run --max-tokens 2048</code> (default 1024).</p>
+        </div>
+      </details>
+    </div>
+  </aside>
+</div>
+
+<div class="modal" id="modal" hidden>
+  <div class="box">
+    <div class="sh"><span>Import tree</span><button data-m="close">✕</button></div>
+    <p class="hint" style="margin-top:-4px">Paste YAML or JSON — the same file you pass to <code>swarm-tree run --tree</code>.</p>
+    <textarea id="imp" spellcheck="false" placeholder="name: orchestrator&#10;provider: anthropic&#10;model: claude-sonnet-4-5&#10;role: ...&#10;children: []"></textarea>
+    <div class="em" id="imperr"></div>
+    <div class="row" style="margin-top:12px">
+      <label class="filebtn">Open file…<input type="file" id="impfile" accept=".yaml,.yml,.json,.txt" hidden></label>
+      <span class="sp"></span>
+      <button data-m="close">Cancel</button>
+      <button class="pri" id="impgo">Import</button>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+const PROVIDERS=['anthropic','openai','gemini','xai','deepseek'];
+const HINT={anthropic:'claude-sonnet-4-5',openai:'gpt-5',gemini:'gemini-2.5-pro',xai:'grok-4',deepseek:'deepseek-chat'};
+const PCOL={anthropic:'#d9a57c',openai:'#6fd3a8',gemini:'#7aa7ff',xai:'#c3c6cf',deepseek:'#a08cff'};
+const MAX_DEPTH=4,NW=196,NH=66,GX=28,GY=72,STORE='swarm-tree-studio:v1';
+const NODE_KEYS=['name','provider','model','role','children','summarizer'];
+const ROOT_KEYS=[...NODE_KEYS,'summary_mode','max_concurrency','timeout','max_children','prices'];
+const NUMS=['max_concurrency','timeout','max_children'];
+const EXAMPLE={name:'orchestrator',provider:'anthropic',model:'claude-sonnet-4-5',role:'You are the top-level coordinator. Break hard problems into subtasks for your sub-agents, then merge their results into one coherent answer.',children:[
+  {name:'grok-agent',provider:'xai',model:'grok-4',role:'You are a contrarian analyst. Find flaws, edge cases, and risks others miss.'},
+  {name:'gemini-agent',provider:'gemini',model:'gemini-2.5-pro',role:'You are a researcher. Gather facts, evidence, and precedents.'},
+  {name:'gpt-agent',provider:'openai',model:'gpt-5',role:'You are a planner. Turn goals into concrete step-by-step plans.',children:[
+    {name:'code-reviewer',provider:'deepseek',model:'deepseek-chat',role:'You review code diffs and point out bugs.'},
+    {name:'writer',provider:'anthropic',model:'claude-sonnet-4-5',role:'You write clear, concise summaries.'}]}]};
+
+let uid=1,T,S,sel,ERR=[],BOUNDS={w:NW,h:NH},view={x:0,y:0,k:1};
+const $=q=>document.querySelector(q),$$=q=>[...document.querySelectorAll(q)];
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const str=v=>v==null?'':String(v);
+const defaults=()=>({summary_mode:true,sum:{provider:'',model:''},max_concurrency:'8',timeout:'120',max_children:'8',prices:null});
+const mk=(o={})=>({id:uid++,name:'',provider:'',model:'',role:'',summarizer:{provider:'',model:''},children:[],...o});
+function walk(n,f,d=0,p=null){f(n,d,p);n.children.forEach(c=>walk(c,f,d+1,n))}
+function find(id){let r=null;walk(T,(n,d,p)=>{if(n.id===id)r={n,d,p}});return r}
+const isInt=v=>/^\s*\d+\s*$/.test(String(v))&&+v>=1;
+const isPos=v=>String(v).trim()!==''&&isFinite(+v)&&+v>0;
+const maxChildren=()=>isInt(S.max_children)?+S.max_children:8;
+
+/* ---------- validation (mirrors `swarm-tree validate`) ---------- */
+function validate(){
+  const E=[],add=(id,f,msg)=>E.push({id,f,msg}),names={},mc=maxChildren();
+  walk(T,(n,d)=>{
+    for(const f of['name','provider','model','role'])if(!String(n[f]).trim())add(n.id,f,`${f} is required`);
+    if(n.provider&&!PROVIDERS.includes(n.provider))add(n.id,'provider',`unknown provider "${n.provider}"`);
+    const nm=n.name.trim();if(nm)(names[nm]=names[nm]||[]).push(n.id);
+    if(d>MAX_DEPTH)add(n.id,'depth',`depth ${d} exceeds max depth ${MAX_DEPTH}`);
+    if(n.children.length>mc)add(n.id,'children',`${n.children.length} children exceeds max_children (${mc})`);
+    if(d>0)chkSum(n.summarizer,n.id,add);
+  });
+  for(const[nm,ids]of Object.entries(names))if(ids.length>1)ids.forEach(id=>add(id,'name',`name "${nm}" is used by ${ids.length} nodes`));
+  if(typeof S.summary_mode!=='boolean')add('g','summary_mode','summary_mode must be true or false');
+  chkSum(S.sum,'g',add);
+  for(const f of['max_concurrency','max_children'])if(!isInt(S[f]))add('g',f,`${f} must be a whole number ≥ 1`);
+  if(!isPos(S.timeout))add('g','timeout','timeout must be a number > 0');
+  return E;
+}
+function chkSum(s,id,add){
+  if(!s.provider&&!s.model.trim())return;
+  if(!s.provider)add(id,'sum.provider','summarizer provider is required when a model is set');
+  else if(!PROVIDERS.includes(s.provider))add(id,'sum.provider',`unknown provider "${s.provider}"`);
+  if(!s.model.trim())add(id,'sum.model','summarizer model is required when a provider is set');
+}
+function canAdd(r){
+  if(r.d>=MAX_DEPTH)return`Max depth ${MAX_DEPTH} reached`;
+  if(r.n.children.length>=maxChildren())return`max_children (${maxChildren()}) reached`;
+  return'';
+}
+
+/* ---------- serialization ---------- */
+const numOut=v=>{const t=String(v).trim();return t!==''&&isFinite(+t)?+t:t};
+function toObj(n,root){
+  const o={name:n.name.trim(),provider:n.provider,model:n.model.trim(),role:n.role};
+  if(root){
+    o.summary_mode=S.summary_mode;
+    if(S.sum.provider||S.sum.model.trim())o.summarizer={provider:S.sum.provider,model:S.sum.model.trim()};
+    NUMS.forEach(f=>o[f]=numOut(S[f]));
+    if(S.prices!=null)o.prices=S.prices;
+  }else if(n.summarizer.provider||n.summarizer.model.trim())o.summarizer={provider:n.summarizer.provider,model:n.summarizer.model.trim()};
+  if(n.children.length)o.children=n.children.map(c=>toObj(c,false));
+  return o;
+}
+const toYaml=()=>jsyaml.dump(toObj(T,true),{lineWidth:-1,noRefs:true});
+const toJson=()=>JSON.stringify(toObj(T,true),null,2)+'\n';
+function fromObj(o,d,warn,path){
+  if(d>50)throw Error('Tree is nested too deeply (cycle?)');
+  if(!o||typeof o!=='object'||Array.isArray(o))throw Error(`${path}: a node must be a mapping`);
+  const known=d?NODE_KEYS:ROOT_KEYS;
+  Object.keys(o).forEach(k=>{if(!known.includes(k))warn.push(`${path}: unknown key "${k}" (ignored)`)});
+  const n=mk({name:str(o.name),provider:str(o.provider),model:str(o.model),role:str(o.role)});
+  if(d&&o.summarizer!=null){
+    if(typeof o.summarizer==='object'&&!Array.isArray(o.summarizer))n.summarizer={provider:str(o.summarizer.provider),model:str(o.summarizer.model)};
+    else warn.push(`${path}: summarizer must be a mapping (ignored)`);
+  }
+  if(o.children!=null){
+    if(!Array.isArray(o.children))throw Error(`${path}: children must be a list`);
+    n.children=o.children.map((c,i)=>fromObj(c,d+1,warn,`${path}.children[${i}]`));
+  }
+  return n;
+}
+function loadObj(o){
+  if(!o||typeof o!=='object'||Array.isArray(o))throw Error('Top level must be a mapping (the root node)');
+  const warn=[],t=fromObj(o,0,warn,o.name?`"${o.name}"`:'root'),s=defaults();
+  if('summary_mode'in o)s.summary_mode=o.summary_mode;
+  if(o.summarizer!=null){
+    if(typeof o.summarizer==='object'&&!Array.isArray(o.summarizer))s.sum={provider:str(o.summarizer.provider),model:str(o.summarizer.model)};
+    else warn.push('root: summarizer must be a mapping (ignored)');
+  }
+  NUMS.forEach(f=>{if(o[f]!=null)s[f]=String(o[f])});
+  if(o.prices!=null)s.prices=o.prices;
+  T=t;S=s;sel=T.id;
+  fillGlobals();renderInspector();changed();requestAnimationFrame(fit);
+  return warn;
+}
+
+/* ---------- rendering ---------- */
+function renderTree(){
+  const w=new Map(),pos=new Map();
+  const width=n=>{const s=n.children.reduce((a,c)=>a+width(c),0),v=Math.max(NW+GX,s);w.set(n.id,v);return v};
+  const place=(n,x0,d)=>{
+    const y=d*(NH+GY);
+    if(!n.children.length){pos.set(n.id,{x:x0+(w.get(n.id)-NW)/2,y});return}
+    const s=n.children.reduce((a,c)=>a+w.get(c.id),0);let x=x0+(w.get(n.id)-s)/2;
+    n.children.forEach(c=>{place(c,x,d+1);x+=w.get(c.id)});
+    pos.set(n.id,{x:(pos.get(n.children[0].id).x+pos.get(n.children.at(-1).id).x)/2,y});
+  };
+  width(T);place(T,0,0);
+  const bad=new Set(ERR.map(e=>e.id));let edges='',html='',mx=0,my=0;
+  walk(T,(n,d,p)=>{
+    const P=pos.get(n.id);mx=Math.max(mx,P.x+NW);my=Math.max(my,P.y+NH);
+    if(p){const Q=pos.get(p.id),x1=Q.x+NW/2,y1=Q.y+NH,x2=P.x+NW/2,y2=P.y,m=(y1+y2)/2;edges+=`<path d="M${x1} ${y1}C${x1} ${m} ${x2} ${m} ${x2} ${y2}"/>`}
+    let tb='';
+    if(n.id===sel){const why=canAdd({n,d});tb=`<div class="tb"><button data-a="add"${why?` disabled title="${esc(why)}"`:''}>+ add child</button>${d?'<button data-a="del" class="danger">delete</button>':''}</div>`}
+    html+=`<div class="node${n.id===sel?' sel':''}${bad.has(n.id)?' bad':''}" data-id="${n.id}" style="left:${P.x}px;top:${P.y}px;--pc:${PCOL[n.provider]||'#4a5160'}">
+      <div class="nt"><b class="${n.name.trim()?'':'empty'}">${esc(n.name.trim()||'unnamed')}</b><span class="dp">${d?'d'+d:'root'}</span></div>
+      <div class="nm"><i></i>${esc(n.provider||'no provider')} · ${esc(n.model.trim()||'no model')}</div>${tb}</div>`;
+  });
+  BOUNDS={w:mx,h:my+40};
+  $('#world').innerHTML=`<svg class="edges" width="${mx+40}" height="${my+80}">${edges}</svg>${html}`;
+  applyView();
+}
+const provOpts=(v,blank)=>`<option value="">${blank}</option>`+[...PROVIDERS,...(v&&!PROVIDERS.includes(v)?[v]:[])].map(p=>`<option${p===v?' selected':''}>${esc(p)}</option>`).join('');
+const fld=(label,inner,f)=>`<label class="fl"><span>${label}</span>${inner}<div class="em" data-e="${f}"></div></label>`;
+const hint=p=>HINT[p]?`e.g. ${HINT[p]}`:'pick a provider first';
+function renderInspector(){
+  let r=find(sel);if(!r){sel=T.id;r=find(sel)}
+  const{n,d}=r,why=canAdd(r);
+  $('#insp').innerHTML=`<div class="sh"><span>${d?'Agent node':'Root node'}</span><span class="pill">depth ${d} · ${n.children.length} child${n.children.length===1?'':'ren'}</span></div>
+    ${fld('Name',`<input data-f="name" value="${esc(n.name)}" spellcheck="false" autocomplete="off">`,'name')}
+    ${fld('Provider',`<select data-f="provider">${provOpts(n.provider,'Select provider…')}</select>`,'provider')}
+    ${fld('Model',`<input data-f="model" value="${esc(n.model)}" placeholder="${hint(n.provider)}" spellcheck="false" autocomplete="off">`,'model')}
+    ${fld('Role (system prompt)',`<textarea data-f="role" placeholder="You are a…">${esc(n.role)}</textarea>`,'role')}
+    ${d?`<details class="sub"${n.summarizer.provider||n.summarizer.model?' open':''}><summary>Summarizer override (optional)</summary>
+      <div class="grid2"><div><select data-f="sum.provider">${provOpts(n.summarizer.provider,'(inherit)')}</select><div class="em" data-e="sum.provider"></div></div>
+      <div><input data-f="sum.model" value="${esc(n.summarizer.model)}" placeholder="${HINT[n.summarizer.provider]||'model'}" spellcheck="false"><div class="em" data-e="sum.model"></div></div></div></details>`
+      :'<p class="hint" style="margin:-2px 0 12px">The root summarizer is set under Global settings.</p>'}
+    <div class="em" data-e="depth" style="margin-bottom:8px"></div><div class="em" data-e="children" style="margin-bottom:8px"></div>
+    <div class="row"><button data-a="add" id="iAdd"${why?` disabled title="${esc(why)}"`:''}>+ Add child</button>${d?'<button data-a="del" class="danger">Delete node</button>':''}</div>`;
+}
+function fillGlobals(){
+  $('[data-g="summary_mode"]').checked=S.summary_mode===true;
+  $('[data-g="sum.provider"]').innerHTML=provOpts(S.sum.provider,'(each child’s own model)');
+  $('[data-g="sum.model"]').value=S.sum.model;
+  $('[data-g="sum.model"]').placeholder=HINT[S.sum.provider]||'model';
+  NUMS.forEach(f=>$(`[data-g="${f}"]`).value=S[f]);
+}
+function markErrors(box,attr,id){
+  const mine=ERR.filter(e=>e.id===id);
+  box.querySelectorAll(`[${attr}]`).forEach(el=>el.classList.toggle('bad',mine.some(e=>e.f===el.getAttribute(attr))));
+  box.querySelectorAll('[data-e]').forEach(el=>el.textContent=mine.filter(e=>e.f===el.dataset.e).map(e=>e.msg).join(' · '));
+}
+function renderErrors(){
+  markErrors($('#insp'),'data-f',sel);markErrors($('#glob'),'data-g','g');
+  const st=$('#status');st.className=ERR.length?'err':'ok';
+  st.textContent=ERR.length?`${ERR.length} problem${ERR.length>1?'s':''} · export blocked`:'✓ Valid tree';
+  $('#pc').textContent=ERR.length?ERR.length:'';
+  $('#probs').innerHTML=ERR.length?ERR.map(e=>{const who=e.id==='g'?'global settings':(find(e.id)?.n.name.trim()||'unnamed node');
+    return`<div class="pr" data-id="${e.id}" data-f="${e.f}"><b>${esc(who)}</b><span>${esc(e.msg)}</span></div>`}).join(''):'<p class="hint" style="padding:6px 10px">No problems — this tree passes the CLI rules.</p>';
+  const ia=$('#iAdd'),r=find(sel);
+  if(ia&&r){const why=canAdd(r);ia.disabled=!!why;ia.title=why}
+}
+function renderYaml(){
+  let y;try{y=toYaml()}catch(e){y='# '+e.message}
+  $('#yaml').innerHTML=esc(y).split('\n').map(l=>l.replace(/^(\s*)(- )?([A-Za-z_]\w*)(:)/,(_,s,dash,k,c)=>`${s}${dash?'<span class="d">- </span>':''}<span class="k">${k}</span>${c}`)).join('\n');
+}
+function changed(){ERR=validate();renderTree();renderYaml();renderErrors();save()}
+function select(id){sel=id;renderInspector();renderTree();renderErrors()}
+
+/* ---------- actions ---------- */
+function uniqName(){const used=new Set();walk(T,n=>used.add(n.name.trim()));let k=1;while(used.has(`agent-${k}`))k++;return`agent-${k}`}
+function addChild(){
+  const r=find(sel),why=canAdd(r);if(why)return toast(why,'err');
+  const c=mk({name:uniqName(),provider:r.n.provider,model:r.n.model});
+  r.n.children.push(c);sel=c.id;renderInspector();changed();
+  const el=$('#insp [data-f="role"]');el&&el.focus();
+}
+function delNode(){
+  const r=find(sel);if(!r||!r.p)return;
+  let cnt=-1;walk(r.n,()=>cnt++);
+  if(cnt>0&&!confirm(`Delete "${r.n.name||'unnamed'}" and its ${cnt} descendant${cnt>1?'s':''}?`))return;
+  r.p.children=r.p.children.filter(c=>c!==r.n);sel=r.p.id;renderInspector();changed();
+}
+function guard(){if(!ERR.length)return true;toast(`Fix ${ERR.length} problem${ERR.length>1?'s':''} before exporting.`,'err');showTab('probs');return false}
+const slug=()=>(T.name.trim().toLowerCase().replace(/[^a-z0-9._-]+/g,'-').replace(/^-+|-+$/g,'')||'tree');
+function download(name,text,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500);toast(`Downloaded ${name}`)}
+async function copy(text){
+  try{await navigator.clipboard.writeText(text)}catch{const t=document.createElement('textarea');t.value=text;document.body.appendChild(t);t.select();document.execCommand('copy');t.remove()}
+  toast('YAML copied to clipboard');
+}
+let tt;function toast(m,kind=''){const t=$('#toast');t.textContent=m;t.className='on '+kind;clearTimeout(tt);tt=setTimeout(()=>t.className=kind,2800)}
+function showTab(t){$$('.tab').forEach(b=>b.classList.toggle('on',b.dataset.tab===t));$('#yaml').style.display=t==='yaml'?'block':'none';$('#probs').style.display=t==='probs'?'block':'none'}
+function save(){try{localStorage.setItem(STORE,JSON.stringify({T,S}))}catch{}}
+function restore(){
+  try{const d=JSON.parse(localStorage.getItem(STORE));if(!d||!d.T||!d.S)return false;
+    let ok=true;walk(d.T,n=>{if(typeof n.id!=='number'||!Array.isArray(n.children)||!n.summarizer)ok=false;else uid=Math.max(uid,n.id+1)});
+    if(!ok)return false;T=d.T;S={...defaults(),...d.S};sel=T.id;fillGlobals();renderInspector();changed();requestAnimationFrame(fit);return true}
+  catch{return false}
+}
+
+/* ---------- pan / zoom ---------- */
+const cv=$('#canvas');
+function applyView(){$('#world').style.transform=`translate(${view.x}px,${view.y}px) scale(${view.k})`}
+function fit(){const r=cv.getBoundingClientRect(),k=Math.max(.3,Math.min(1.1,(r.width-60)/BOUNDS.w,(r.height-70)/BOUNDS.h));view={k,x:(r.width-BOUNDS.w*k)/2,y:30};applyView()}
+function zoomAt(f,px,py){const k=Math.max(.3,Math.min(2.2,view.k*f));view.x=px-(px-view.x)*k/view.k;view.y=py-(py-view.y)*k/view.k;view.k=k;applyView()}
+let drag=null;
+cv.addEventListener('pointerdown',e=>{if(e.target.closest('.node,.ctl,button'))return;drag={x:e.clientX-view.x,y:e.clientY-view.y};cv.setPointerCapture(e.pointerId);cv.classList.add('drag')});
+cv.addEventListener('pointermove',e=>{if(!drag)return;view.x=e.clientX-drag.x;view.y=e.clientY-drag.y;applyView()});
+cv.addEventListener('pointerup',()=>{drag=null;cv.classList.remove('drag')});
+cv.addEventListener('wheel',e=>{e.preventDefault();const r=cv.getBoundingClientRect();zoomAt(Math.exp(-e.deltaY*.0015),e.clientX-r.left,e.clientY-r.top)},{passive:false});
+const zc=f=>{const r=cv.getBoundingClientRect();zoomAt(f,r.width/2,r.height/2)};
+$('#zIn').onclick=()=>zc(1.2);$('#zOut').onclick=()=>zc(1/1.2);$('#zFit').onclick=fit;
+window.addEventListener('resize',fit);
+
+/* ---------- events ---------- */
+$('#world').addEventListener('click',e=>{
+  const a=e.target.closest('[data-a]');if(a){e.stopPropagation();return a.dataset.a==='add'?addChild():delNode()}
+  const n=e.target.closest('.node');if(n)select(+n.dataset.id);
+});
+$('#insp').addEventListener('click',e=>{const a=e.target.closest('[data-a]');if(a)a.dataset.a==='add'?addChild():delNode()});
+$('#insp').addEventListener('input',e=>{
+  const f=e.target.dataset.f;if(!f)return;const n=find(sel).n,v=e.target.value;
+  if(f.startsWith('sum.')){n.summarizer[f.slice(4)]=v;if(f==='sum.provider')$('#insp [data-f="sum.model"]').placeholder=HINT[v]||'model'}
+  else{n[f]=v;if(f==='provider')$('#insp [data-f="model"]').placeholder=hint(v)}
+  changed();
+});
+$('#glob').addEventListener('input',e=>{
+  const g=e.target.dataset.g;if(!g)return;
+  if(g==='summary_mode')S.summary_mode=e.target.checked;
+  else if(g.startsWith('sum.')){S.sum[g.slice(4)]=e.target.value;if(g==='sum.provider')$('[data-g="sum.model"]').placeholder=HINT[e.target.value]||'model'}
+  else S[g]=e.target.value;
+  changed();
+});
+$('#probs').addEventListener('click',e=>{
+  const p=e.target.closest('.pr');if(!p)return;const{id,f}=p.dataset;
+  if(id==='g'){$('#gdet').open=true;const el=$(`[data-g="${f}"]`);el&&(el.type==='checkbox'?el.parentElement.scrollIntoView({block:'center'}):el.focus());return}
+  select(+id);const el=$(`#insp [data-f="${f}"]`);if(el){el.closest('details')&&(el.closest('details').open=true);el.focus()}
+});
+$('#status').onclick=()=>showTab(ERR.length?'probs':'yaml');
+$$('.tab').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
+$('#bNew').onclick=()=>{if(!confirm('Discard the current tree and start a new one?'))return;loadObj({name:'orchestrator',provider:'anthropic',model:'claude-sonnet-4-5',role:''});toast('New tree created')};
+$('#bEx').onclick=()=>{if(!confirm('Replace the current tree with the example?'))return;loadObj(EXAMPLE);toast('Example loaded')};
+$('#bYaml').onclick=()=>guard()&&download(slug()+'.yaml',toYaml(),'text/yaml');
+$('#bJson').onclick=()=>guard()&&download(slug()+'.json',toJson(),'application/json');
+$('#bCopy').onclick=()=>guard()&&copy(toYaml());
+const modal=$('#modal');
+$('#bImp').onclick=()=>{$('#imperr').textContent='';modal.hidden=false;$('#imp').focus()};
+modal.addEventListener('click',e=>{if(e.target===modal||e.target.closest('[data-m="close"]'))modal.hidden=true});
+$('#impfile').onchange=async e=>{const f=e.target.files[0];if(f)$('#imp').value=await f.text();e.target.value=''};
+$('#impgo').onclick=()=>{
+  const txt=$('#imp').value;if(!txt.trim())return $('#imperr').textContent='Paste a YAML or JSON tree first.';
+  let o;try{o=jsyaml.load(txt)}catch(err){return $('#imperr').textContent='Parse error: '+err.message}
+  try{const warn=loadObj(o);modal.hidden=true;$('#imp').value='';
+    toast(warn.length?`Imported with ${warn.length} warning${warn.length>1?'s':''}: ${warn.slice(0,2).join('; ')}${warn.length>2?'…':''}`:'Tree imported',warn.length?'err':'')}
+  catch(err){$('#imperr').textContent=err.message}
+};
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'&&!modal.hidden){modal.hidden=true;return}
+  if(e.target.closest('input,textarea,select')||!modal.hidden)return;
+  if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();delNode()}
+});
+
+/* ---------- boot ---------- */
+if(typeof jsyaml==='undefined'){document.body.innerHTML='<p style="padding:24px">Could not load js-yaml from cdnjs. Check your connection and reload.</p>'}
+else if(!restore())loadObj(EXAMPLE);
+</script>
+</body>
+</html>
