@@ -115,6 +115,15 @@ def _parser() -> argparse.ArgumentParser:
                      help="Override the config's serve_dir")
     rep.add_argument("--node", default=None,
                      help="Show one node's latest output instead of the briefing")
+
+    qu = sub.add_parser("queue", help="Review the owner action queue: items "
+                                      "harvested from DECISION: lines in node "
+                                      "outputs that need a human decision.")
+    qu.add_argument("--tree", required=True, help="Path to tree.yaml / tree.json")
+    qu.add_argument("--serve-dir", default=None,
+                    help="Override the config's serve_dir")
+    qu.add_argument("--clear", action="store_true",
+                    help="Empty the queue (after handling the items)")
     return parser
 
 
@@ -191,6 +200,31 @@ def _cmd_report(args) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     print(serve.read_report(_resolve_serve_dir(node, args.serve_dir), args.node))
+    return 0
+
+
+def _cmd_queue(args) -> int:
+    try:
+        node = config.load_config(args.tree)
+    except (config.TreeError, OSError, json.JSONDecodeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    serve_dir = _resolve_serve_dir(node, args.serve_dir)
+    state = serve.load_state(serve_dir)
+    if args.clear:
+        removed = serve.queue_clear(state)
+        serve.save_state(serve_dir, state)
+        print(f"queue cleared ({removed} item(s) removed)")
+        return 0
+    items = serve.get_queue(state)
+    if not items:
+        print("owner queue is empty — no pending decisions")
+        return 0
+    print(f"{len(items)} pending decision(s) — handle them, then "
+          f"`swarm-tree queue --clear`:")
+    for i, item in enumerate(items, 1):
+        print(f"{i}. [{item.get('node')}] {item.get('text')} "
+              f"({item.get('added_at', '?')})")
     return 0
 
 
@@ -330,6 +364,8 @@ def main(argv=None) -> int:
         return _cmd_status(args)
     if args.command == "report":
         return _cmd_report(args)
+    if args.command == "queue":
+        return _cmd_queue(args)
     return 2
 
 
