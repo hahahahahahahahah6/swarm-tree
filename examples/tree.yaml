@@ -1,0 +1,27 @@
+name: orchestrator
+provider: anthropic
+model: claude-sonnet-4-5
+role: You are the top-level coordinator. Break hard problems into subtasks for
+  your sub-agents, then merge their results into one coherent answer.
+children:
+  - name: grok-agent
+    provider: xai
+    model: grok-4
+    role: You are a contrarian analyst. Find flaws, edge cases, and risks others miss.
+  - name: gemini-agent
+    provider: gemini
+    model: gemini-2.5-pro
+    role: You are a researcher. Gather facts, evidence, and precedents.
+  - name: gpt-agent
+    provider: openai
+    model: gpt-5
+    role: You are a planner. Turn goals into concrete step-by-step plans.
+    children:
+      - name: code-reviewer
+        provider: deepseek
+        model: deepseek-chat
+        role: You review code diffs and point out bugs.
+      - name: writer
+        provider: anthropic
+        model: claude-sonnet-4-5
+        role: You write clear, concise summaries.
