@@ -296,6 +296,37 @@ swarm-tree queue --tree tree.yaml            # pending owner decisions
 swarm-tree queue --tree tree.yaml --clear    # empty the queue
 ```
 
+## Web mode (v0.5): a website for your trees
+
+`swarm-tree web` starts a local, stdlib-only web app (no frameworks, no new
+dependencies):
+
+```bash
+swarm-tree web --port 8080     # http://127.0.0.1:8080
+```
+
+What you get in the browser:
+
+- **Accounts** — sign up / log in (pbkdf2-hmac passwords, HMAC-signed
+  session cookies, login rate limiting).
+- **Tree editor** — create trees and edit them in the visual studio
+  (the same tree builder from `studio/`, with a Save button wired to the
+  server); one-click validation before saving.
+- **Chat** — pick a tree, send a message, watch the agents work via a
+  live progress stream; full transcripts are kept per run.
+- **Image generation** — prompt → PNG, via OpenAI (`gpt-image-2.5-flare`)
+  or Gemini (`gemini-3.1-flash-image`); your images are saved under
+  `serve-data/images/`.
+- **BYOK keys** — paste your own provider API keys in Settings; they are
+  stored in a 0600 SQLite file, used server-side only, and never rendered
+  back or logged. Chat and image calls use *your* keys, per request.
+
+Security notes: passwords are salted + stretched (pbkdf2-hmac/sha256,
+200k rounds); sessions are HMAC-signed, HttpOnly, SameSite=Lax, 7-day
+expiry. For anything beyond localhost: put it behind TLS, set
+`SWARM_TREE_SECRET` from a real secret manager, and consider moving keys
+out of SQLite into a KMS.
+
 ## Rules enforced on the tree
 
 - Each node needs `name`, `provider`, `model`, `role`; `children` is optional.
