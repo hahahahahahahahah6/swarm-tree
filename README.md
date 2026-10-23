@@ -20,6 +20,14 @@ The runtime core is standard-library only (no vendor SDKs, no frameworks).
 Tree configs can be YAML — which requires PyYAML (`pip install "swarm-tree[yaml]"`)
 — or plain JSON, which always works.
 
+## Studio (visual editor)
+
+Don't want to hand-write YAML? Open
+[`studio/swarm-tree-studio.html`](studio/swarm-tree-studio.html) in a browser —
+a single-file visual tree builder: click nodes to edit them, pick a provider
+per agent, live validation against the CLI's rules, and one-click YAML/JSON
+export that `swarm-tree validate` accepts.
+
 ## Install
 
 ```bash
