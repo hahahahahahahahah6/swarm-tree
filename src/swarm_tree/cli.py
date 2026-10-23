@@ -92,6 +92,22 @@ def _count_leaves(node: dict) -> int:
     return sum(_count_leaves(c) for c in node["children"])
 
 
+def _effective_summary_mode(node: dict, full_context: bool) -> bool:
+    """Resolve whether summary mode is on for a run.
+
+    The config's root-level `summary_mode` (default true) ANDed with the
+    --full-context flag: the flag always wins, so --full-context turns
+    summaries off regardless of the config.
+    """
+    return bool(node.get("summary_mode", True)) and not full_context
+
+
+def _count_errors(record: dict) -> int:
+    """Count nodes with status "error" anywhere in a finished record tree."""
+    n = 1 if record.get("status") == "error" else 0
+    return n + sum(_count_errors(c) for c in record.get("children", []))
+
+
 def _cmd_run(args) -> int:
     try:
         node = config.load_config(args.tree)
@@ -120,7 +136,7 @@ def _cmd_run(args) -> int:
 
     print(f"swarm-tree v{__version__} — task: {args.task!r}")
     print(f"mode: {'dry-run (mock providers, $0.00)' if args.dry_run else 'live'}")
-    summary_mode = node.get("summary_mode", True) and not args.full_context
+    summary_mode = _effective_summary_mode(node, args.full_context)
     print(f"summary mode: {'on' if summary_mode else 'off (full context)'}")
     print()
 
@@ -129,9 +145,14 @@ def _cmd_run(args) -> int:
 
     print(render.render_tree(record))
     print()
+    n_failed = _count_errors(record)
     if record["status"] == "ok":
         print("=== FINAL ANSWER ===")
         print(record["response"])
+        if n_failed:
+            print()
+            print(f"=== WARNING: {n_failed} sub-agent(s) failed "
+                  f"(see transcript.json for details) ===")
     else:
         print(f"=== RUN FAILED: {record['error']} ===")
 
@@ -148,7 +169,9 @@ def _cmd_run(args) -> int:
         json.dump(transcript, fh, indent=2, ensure_ascii=False)
     print()
     print(f"transcript written to {args.output}")
-    return 0 if record["status"] == "ok" else 1
+    # Exit 1 on a hard root failure OR any failed sub-agent: the transcript
+    # always has the full picture, but a degraded run should not look clean.
+    return 0 if record["status"] == "ok" and n_failed == 0 else 1
 
 
 def main(argv=None) -> int:
