@@ -5,10 +5,14 @@ A leaf node calls its provider once with (role + task) and returns text.
 An internal node:
   1. calls its provider with (role + task + the children's roles) to produce
      one subtask per child (decompose step);
-  2. runs its children in parallel (threads);
-  3. summarizes each child with one cheap call to that child's own
-     provider/model (summary mode, default on) — or skips this with
-     summary_mode=False;
+  2. runs its children in parallel (threads); a failed child is recorded
+     (status/error) and the parent keeps going in degraded mode instead of
+     aborting — the synthesize step is told explicitly which sub-agent
+     failed;
+  3. summarizes each child concurrently with one cheap call each to that
+     child's own provider/model (summary mode, default on) — or skips this
+     with summary_mode=False; one child's summarize failure never affects
+     the others;
   4. calls its provider again with the child results to produce the final
      answer (synthesize step). In summary mode the synthesize prompt sees
      only the compact summaries, never the raw child outputs; full outputs
@@ -125,13 +129,17 @@ def _synthesize_prompt(task: str, child_records: list, summary_mode: bool) -> st
         results = "\n\n".join(parts)
     else:
         results = "\n\n".join(
-            f"[{c['name']}]:\n{c['response']}" for c in child_records
+            f"[{c['name']}]:\n"
+            f"{c['response'] if c['response'] else f'(sub-agent failed: {c.get("error")})'}"
+            for c in child_records
         )
     return (
         f"Original task:\n{task}\n\n"
         f"Sub-agent results:\n{results}\n\n"
-        f"Combine the sub-agent results into one coherent final answer to the "
-        f"original task."
+        f"Combine these into one coherent final answer to the original task. "
+        f"Cite which sub-agent each key point comes from (by name). If a "
+        f"sub-agent failed, or its summary looks incomplete or contradicts "
+        f"the others, say so explicitly instead of guessing."
     )
 
 
@@ -173,8 +181,14 @@ def _make_summary(fn, node: dict, child_record: dict, max_tokens: int) -> None:
     falls back to a 500-char truncation of the child's answer — the run never
     crashes because of a summarize call. The summarize call's own usage is
     recorded on the child's calls list, so it shows up in token rollups.
+
+    A child that failed still gets a summary: its status is reported as
+    "failed" and the summary notes the error, so the parent's synthesize
+    step can account for it explicitly instead of silently missing it.
     """
     answer = child_record.get("response") or ""
+    if not answer and child_record.get("error"):
+        answer = f"(sub-agent failed: {child_record['error']})"
     artifacts = _extract_artifacts(answer)
     system = f"You are the '{node['name']}' agent. {node['role']}"
     user = f"{_SUMMARIZE_PROMPT}\n\nYour completed work:\n{answer}"
@@ -194,16 +208,41 @@ def _make_summary(fn, node: dict, child_record: dict, max_tokens: int) -> None:
             or "(no output)"
         fallback = True
     _rollup(child_record)  # subtree tokens, including this summarize call
+    status = child_record.get("status", "unknown")
+    if status == "error":
+        status = "failed"  # the synthesize prompt speaks "failed", not "error"
     child_record["summary"] = {
         "name": node["name"],
         "provider": node["provider"],
         "model": node["model"],
-        "status": child_record.get("status", "unknown"),
+        "status": status,
         "summary": summary_text,
         "artifacts": artifacts,
         "tokens": dict(child_record["tokens"]),
         "summary_fallback": fallback,
     }
+
+
+def _safe_summary(fn, node: dict, child_record: dict, max_tokens: int) -> None:
+    """_make_summary that can never raise: sibling summaries are isolated.
+
+    _make_summary already falls back internally on provider failure; this
+    wrapper is defense-in-depth for anything unexpected (a malformed record,
+    a broken provider fn) so one bad child can never take down the rest.
+    """
+    try:
+        _make_summary(fn, node, child_record, max_tokens)
+    except Exception as exc:  # noqa: BLE001 - last-resort fallback below
+        child_record["summary"] = {
+            "name": node["name"],
+            "provider": node["provider"],
+            "model": node["model"],
+            "status": "failed",
+            "summary": f"(summary unavailable: {exc})",
+            "artifacts": [],
+            "tokens": dict(child_record.get("tokens", {"input": 0, "output": 0})),
+            "summary_fallback": True,
+        }
 
 
 def _run_node(node: dict, task: str, fn, max_tokens: int, record: dict,
@@ -224,20 +263,26 @@ def _run_node(node: dict, task: str, fn, max_tokens: int, record: dict,
                                         crec, summary_mode))
             for child, subtask, crec in zip(node["children"], subtasks, child_records)
         ]
-        failures = []
         for name, future in futures:
             try:
                 future.result()
-            except Exception as exc:  # noqa: BLE001 - recorded in the transcript
-                failures.append(f"{name} ({exc})")
-    if failures:
-        raise RuntimeError(f"child agents failed: {'; '.join(failures)}")
+            except Exception:
+                # Recorded on the child (status/error); the parent keeps
+                # going in degraded mode and the synthesize step is told
+                # which sub-agent failed instead of the whole run dying.
+                pass
     if summary_mode:
         # One cheap summarize call per child (on the child's own
         # provider/model) so the synthesize step sees compact summaries
-        # instead of full child transcripts.
-        for child, crec in zip(node["children"], child_records):
-            _make_summary(fn, child, crec, max_tokens)
+        # instead of full child transcripts. Siblings summarize
+        # concurrently; _safe_summary isolates failures per child.
+        with ThreadPoolExecutor(max_workers=len(child_records)) as pool:
+            futures = [
+                pool.submit(_safe_summary, fn, child, crec, max_tokens)
+                for child, crec in zip(node["children"], child_records)
+            ]
+            for future in futures:
+                future.result()  # _safe_summary never raises
     record["response"] = _call(
         fn, node, _synthesize_prompt(task, child_records, summary_mode),
         "synthesize", record, max_tokens)
