@@ -16,7 +16,9 @@ Each node can use a different model from a different provider, so the tree is
 a genuine multi-model swarm — the contrarian on Grok, the researcher on Gemini,
 the planner on GPT, coordinated by Claude at the top.
 
-Standard library only. No vendor SDKs, no frameworks.
+The runtime core is standard-library only (no vendor SDKs, no frameworks).
+Tree configs can be YAML — which requires PyYAML (`pip install "swarm-tree[yaml]"`)
+— or plain JSON, which always works.
 
 ## Install
 
@@ -89,24 +91,25 @@ The finished tree rendered as ASCII — every node shows its name,
 provider/model, status, timing, and a truncated result:
 
 ```
-● orchestrator [anthropic/claude-sonnet-4-5] ok 0.0s 757/480
+● orchestrator [anthropic/claude-sonnet-4-5] ok 0.0s 757/480 ~$0.01
   ↳ "[orchestrator] dry-run synthesis: combined 3 sub-agent result(s) into one…"
-├── ● grok-agent [xai/grok-4] ok 0.0s 43/60
+├── ● grok-agent [xai/grok-4] ok 0.0s 43/60 ~$0.0000
 │   ↳ "[grok-agent] dry-run result from xai/grok-4: Do the grok-agent part of:…"
-├── ● gemini-agent [gemini/gemini-2.5-pro] ok 0.0s 41/60
+├── ● gemini-agent [gemini/gemini-2.5-pro] ok 0.0s 41/60 ~$0.0000
 │   ↳ "[gemini-agent] dry-run result from gemini/gemini-2.5-pro: Do the gemini-…"
-└── ● gpt-agent [openai/gpt-5] ok 0.0s 334/240
+└── ● gpt-agent [openai/gpt-5] ok 0.0s 334/240 ~$0.0033
     ↳ "[gpt-agent] dry-run synthesis: combined 2 sub-agent result(s) into one…"
-    ├── ● code-reviewer [deepseek/deepseek-chat] ok 0.0s 43/60
+    ├── ● code-reviewer [deepseek/deepseek-chat] ok 0.0s 43/60 ~$0.0001
     │   ↳ "[code-reviewer] dry-run result from deepseek/deepseek-chat: Do the…"
-    └── ● writer [anthropic/claude-sonnet-4-5] ok 0.0s 38/60
+    └── ● writer [anthropic/claude-sonnet-4-5] ok 0.0s 38/60 ~$0.0000
         ↳ "[writer] dry-run result from anthropic/claude-sonnet-4-5: Do the wri…"
 ```
 
-The trailing `757/480` on each node is input/output tokens: each node's
-number is its own calls **plus all its descendants**, so the root line is
-the grand total for the whole run. That is the whole point — you can see
-at a glance which branch is eating your quota.
+The trailing `757/480 ~$0.01` on each node is input/output tokens plus the
+estimated cost: each node's number is its own calls **plus all its
+descendants**, so the root line is the grand total for the whole run. That
+is the whole point — you can see at a glance which branch is eating your
+quota (and your money).
 
 Then the root's final answer, and a full JSON transcript
 (`transcript.json`) with every node, every prompt, every raw response,
@@ -114,7 +117,7 @@ per-call timings, **and per-call token usage** (`usage.input_tokens` /
 `usage.output_tokens` parsed from each provider's API response) — so the
 whole run is auditable.
 
-## Token accounting
+## Token accounting and cost estimates
 
 Token usage is parsed from each provider's native response format and
 normalized to `{"input_tokens": int, "output_tokens": int}`:
@@ -123,35 +126,54 @@ normalized to `{"input_tokens": int, "output_tokens": int}`:
 |---|---|
 | anthropic | `usage.input_tokens` / `usage.output_tokens` |
 | openai, xai, deepseek | `usage.prompt_tokens` / `usage.completion_tokens` |
-| gemini | `usageMetadata.promptTokenCount` / `usageMetadata.candidatesTokenCount` |
+| gemini | `usageMetadata.promptTokenCount` / (`usageMetadata.candidatesTokenCount` + `thoughtsTokenCount`) |
 
 Missing or malformed usage degrades to `0/0` instead of failing the run.
+
+Each call's estimated USD cost is computed from a small built-in per-provider
+price table (per 1M tokens, **approximate as of 2026-10** — real prices vary by
+exact model and change often; override with the `prices:` root config key) and
+rolled up next to the token counts, so the ASCII tree shows e.g.
+`757/480 ~$0.01` per node and the root line is the grand total.
+
 In `--dry-run` mode the mock provider returns deterministic fake usage
 (`input_tokens` ≈ 1 per 4 prompt chars, `output_tokens` fixed per call
 kind: 60 leaf / 40 decompose / 80 synthesize) so the entire accounting
 path — parsing, rollup, rendering — is exercised for $0.00 with no keys.
+These are illustrative mock numbers, not measurements of any real model.
 
 ## Summary mode
 
 The classic multi-agent failure: every reviewer re-reads every worker's full
 output, and the "coordination" costs more tokens than the work itself. By
-default, swarm-tree avoids this.
+default, swarm-tree avoids the worst of this.
 
-After each child subtree finishes, the parent makes **one extra call to that
-child's own provider/model**: *"summarize what you accomplished, key
-decisions, and where the full output is stored (~150 words max)."* The
-synthesize step then sees only these compact summaries — plus extracted
-artifacts (file paths / URLs mentioned in the child's answer), the subtree's
-token usage, and a pointer to the full transcript — **never the raw child
-outputs**. Nothing is lost: `transcript.json` still records every prompt,
-every raw response, and every per-call token count.
+After each child subtree finishes, **if its answer is long** (over ~2400
+chars, about 2x the summary budget), the parent makes one extra call capped
+at ~300 output tokens: *"summarize what you accomplished, key decisions, and
+where the full output is stored (~150 words max)."* Short answers pass
+through raw — a summarize call would cost more than it saves. The synthesize
+step then sees only these compact summaries — plus extracted artifacts (file
+paths / URLs mentioned in the child's answer), the subtree's token usage,
+truncation flags, and a pointer to the full transcript — **never the raw
+child outputs**. Nothing is lost: `transcript.json` still records every
+prompt, every raw response, and every per-call token count.
 
-The economics: one cheap summarize call per child versus re-reading every
-child's entire output in the synthesize prompt. If the summarize call itself
-fails, the summary falls back to a 500-char truncation of the child's
-answer — the run never crashes because of it.
+The summarize call goes to a `summarizer` model you choose — a cheap model
+compressing for an expensive parent is the whole point:
 
-Control it two ways:
+```yaml
+# tree.yaml (root level; per-node override also accepted)
+summarizer:
+  provider: deepseek
+  model: deepseek-chat
+```
+
+Default is each child's own provider/model. Failed children are never
+summarized: their summary is built directly from the error string (no
+provider call, no shared fate on 429s).
+
+Control summary mode two ways:
 
 ```yaml
 # tree.yaml (root level, default true)
@@ -167,43 +189,71 @@ swarm-tree run --tree tree.yaml --task "..." --full-context  # old behavior: ful
 A failed sub-agent no longer kills the run: the child is recorded with its
 error, its summary is marked `failed`, and the parent synthesizes an answer
 from whatever the surviving children produced — flagging the failure
-explicitly instead of silently working around it. The CLI exits 1 and prints
-a warning when any sub-agent failed, so a degraded run never looks clean.
+explicitly instead of silently working around it. If **every** child of a
+node failed, the node fails instead of synthesizing an answer from nothing.
+The CLI exits 3 and prints a warning when any sub-agent failed, so a
+degraded run never looks clean (see exit codes below).
 
-## How it saves tokens
+## How it saves tokens — honestly
 
-The naive way to review a tree: every internal node's synthesize prompt
-re-reads the full output of every child — and each child's output already
-contains *its* children's full outputs. For a tree with branching factor `b`
-and depth `d`, the tokens re-read near the top grow roughly like `b^d`: the
-same content is paid for again at every level it bubbles through.
+An earlier version of this section claimed summary mode reduces total token
+spend. That was backwards: each summarize call *adds* tokens (it re-reads
+the child's full answer). The honest claim is narrower — summary mode is
+**cost arbitrage**:
 
-swarm-tree's summary mode (default on) replaces that with one ~150-word
-summarize call per child — a few hundred tokens — and the synthesize prompt
-sees only those summaries. Review cost per internal node drops from "the sum
-of all descendant outputs" to "one short summary per direct child": linear
-in the number of children instead of exponential in depth.
+- A cheap `summarizer` model (e.g. DeepSeek) compresses a long child output
+  into ~150 words, so an expensive parent (e.g. Claude) reads the summary
+  instead of the full output. Total tokens go *up* slightly; total *cost*
+  goes down when the summarizer is cheaper per token than the parent.
+- Short answers skip summarization entirely (passthrough), so you never pay
+  a summarize call that saves nothing.
+- Truncation is surfaced, not hidden: if any call was cut off by the token
+  budget, the child's summary is flagged `(truncated)` in the synthesize
+  prompt.
 
-Concrete numbers from `--dry-run` on the example tree (6 nodes, depth 3):
-the root's synthesize prompt carries 3 child summaries (~a few hundred
-tokens) instead of the full outputs of 5 descendants. The 5 summarize calls
-cost a fixed ~250 output tokens total (50 each in dry-run) — less than
-re-reading even one long child output once. Deeper tree, bigger win.
+Use the per-node `~$` cost estimates in the ASCII tree to check whether
+summary mode is actually saving you money on your workload — if your parent
+and children cost the same per token, `--full-context` may be cheaper.
 
 ## Other commands
 
 ```bash
 swarm-tree validate --tree tree.yaml   # check a config without running it
 swarm-tree example                      # print a starter tree.yaml
+swarm-tree run --tree tree.yaml --task "..." --fail-fast         # abort on first child failure
+swarm-tree run --tree tree.yaml --task "..." --max-concurrency 4 # tighter API budget
 ```
 
 ## Rules enforced on the tree
 
 - Each node needs `name`, `provider`, `model`, `role`; `children` is optional.
+  Node names must be unique tree-wide (transcript pointers like "node 'X'"
+  would otherwise be ambiguous).
 - Providers: `anthropic`, `openai`, `gemini`, `xai`, `deepseek`.
 - Max depth 4 (root is depth 0); cycles are rejected.
-- Root may set `summary_mode: true|false` (default `true`); must be a boolean.
-- Configs can be YAML (parsed with PyYAML when installed) or plain JSON.
+- Each node accepts `max_children` (default 8); more children is rejected.
+- Unknown config keys produce a warning (never a crash) — a `chilren:`
+  typo warns instead of silently dropping a subtree.
+- Root knobs (all optional): `summary_mode: true|false` (default `true`,
+  must be a boolean), `max_concurrency` (default 8, global cap on
+  concurrent provider calls), `timeout` (default 120, seconds per provider
+  call), `prices` (override the built-in approximate price table),
+  `summarizer: {provider, model}` (cheap compressor model; per-node
+  override also accepted).
+- Configs can be YAML (requires PyYAML: `pip install "swarm-tree[yaml]"`)
+  or plain JSON (always works).
+
+## Exit codes
+
+- `0` — clean run, all agents succeeded.
+- `3` — degraded: an answer was produced, but one or more sub-agents failed
+  (details in the transcript; a warning is printed).
+- `1` — hard failure: the root node failed or the run was cancelled (Ctrl-C).
+- `2` — config or usage error (invalid tree, missing API keys, bad flags).
+
+The transcript is always written, even for cancelled runs — Ctrl-C marks
+in-flight nodes `cancelled` and dumps the partial transcript instead of
+losing everything.
 
 ## Tests
 
@@ -211,8 +261,9 @@ swarm-tree example                      # print a starter tree.yaml
 python -m unittest discover -s tests
 ```
 
-74 tests, all green. Network calls are stubbed; provider tests never touch
-the real APIs.
+125 tests, all green. Network calls are stubbed; provider tests never touch
+the real APIs. CI runs the suite on Python 3.9–3.13
+(`.github/workflows/ci.yml`).
 
 ## License
 
