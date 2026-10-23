@@ -41,6 +41,7 @@ class ScriptedProvider:
         "decompose": {"input_tokens": 100, "output_tokens": 20},
         "synthesize": {"input_tokens": 200, "output_tokens": 40},
         "leaf": {"input_tokens": 50, "output_tokens": 10},
+        "summarize": {"input_tokens": 30, "output_tokens": 15},
     }
 
     def __init__(self):
@@ -58,6 +59,8 @@ class ScriptedProvider:
             return "\n".join(f"{i + 1}) subtask {i + 1}" for i in range(n)), usage
         if kind == "synthesize":
             return "SYNTH", usage
+        if kind == "summarize":
+            return "SUMMARY", usage
         return f"LEAF:{system.split(chr(39))[1]}", usage
 
 
@@ -78,9 +81,13 @@ class TestEngine(unittest.TestCase):
         rec = engine.execute_tree(tree(), "big task", fn)
         self.assertEqual(rec["status"], "ok")
         kinds = sorted(c[2] for c in fn.calls)
-        # root: decompose+synthesize; a: decompose+synthesize; a1,b: leaf
+        # root: decompose+synthesize; a: decompose+synthesize; a1,b: leaf;
+        # summaries: a1 (by a), a+b (by root) — one cheap call each
         self.assertEqual(
-            kinds, ["decompose", "decompose", "leaf", "leaf", "synthesize", "synthesize"]
+            kinds,
+            ["decompose", "decompose", "leaf", "leaf",
+             "summarize", "summarize", "summarize",
+             "synthesize", "synthesize"],
         )
         self.assertEqual(rec["response"], "SYNTH")
         self.assertEqual(len(rec["children"]), 2)
@@ -189,21 +196,21 @@ class TestEngine(unittest.TestCase):
         check(rec)
 
     def test_token_rollup(self):
-        # tree(): root(decompose+synthesize), a(decompose+synthesize),
-        # a1(leaf), b(leaf). ScriptedProvider usage:
-        # decompose 100/20, synthesize 200/40, leaf 50/10.
+        # tree(): root(decompose+synthesize), a(decompose+synthesize+summarize),
+        # a1(leaf+summarize), b(leaf+summarize). ScriptedProvider usage:
+        # decompose 100/20, synthesize 200/40, leaf 50/10, summarize 30/15.
         rec = engine.execute_tree(tree(), "big task", ScriptedProvider())
         self.assertEqual(rec["status"], "ok")
-        # grand total at root: in = 100+200+100+200+50+50 = 700
-        self.assertEqual(rec["tokens"], {"input": 700, "output": 140})
-        # per-node: a1 leaf alone
+        # grand total at root: in = 300 + 410 + 80 = 790, out = 60+100+25 = 185
+        self.assertEqual(rec["tokens"], {"input": 790, "output": 185})
+        # per-node: a1 leaf + its summarize call
         a1 = rec["children"][0]["children"][0]
-        self.assertEqual(a1["tokens"], {"input": 50, "output": 10})
-        # a = own decompose+synthesize + a1
+        self.assertEqual(a1["tokens"], {"input": 80, "output": 25})
+        # a = own decompose+synthesize+summarize + a1
         a = rec["children"][0]
-        self.assertEqual(a["tokens"], {"input": 350, "output": 70})
-        # b leaf alone
-        self.assertEqual(rec["children"][1]["tokens"], {"input": 50, "output": 10})
+        self.assertEqual(a["tokens"], {"input": 410, "output": 100})
+        # b = leaf + summarize
+        self.assertEqual(rec["children"][1]["tokens"], {"input": 80, "output": 25})
 
     def test_dry_run_usage_deterministic(self):
         rec1 = engine.execute_tree(tree(), "demo task", engine.dry_run_provider)
@@ -232,6 +239,139 @@ class TestEngine(unittest.TestCase):
         total_in = sum(c["usage"]["input_tokens"] for c in all_calls(rec1))
         total_out = sum(c["usage"]["output_tokens"] for c in all_calls(rec1))
         self.assertEqual(rec1["tokens"], {"input": total_in, "output": total_out})
+
+
+class TestSummaryMode(unittest.TestCase):
+    def test_summary_records_attached_to_children(self):
+        fn = ScriptedProvider()
+        rec = engine.execute_tree(tree(), "big task", fn)
+        self.assertEqual(rec["status"], "ok")
+        for child in rec["children"]:
+            s = child.get("summary")
+            self.assertIsNotNone(s)
+            self.assertEqual(s["name"], child["name"])
+            self.assertEqual(s["provider"], child["provider"])
+            self.assertEqual(s["model"], child["model"])
+            self.assertEqual(s["status"], "ok")
+            self.assertEqual(s["summary"], "SUMMARY")
+            self.assertFalse(s["summary_fallback"])
+            self.assertEqual(s["tokens"], child["tokens"])
+        # a1 was summarized by its parent a as well
+        self.assertEqual(rec["children"][0]["children"][0]["summary"]["summary"], "SUMMARY")
+        # root itself has no summary (no parent to summarize it for)
+        self.assertNotIn("summary", rec)
+
+    def test_summarize_call_uses_child_provider(self):
+        fn = ScriptedProvider()
+        engine.execute_tree(tree(), "big task", fn)
+        summarize_calls = [(p, m) for p, m, k in fn.calls if k == "summarize"]
+        # one per child: a1 on deepseek/m3 (by a), a on xai/m2, b on gemini/m4 (by root)
+        self.assertEqual(
+            sorted(summarize_calls),
+            [("deepseek", "m3"), ("gemini", "m4"), ("xai", "m2")],
+        )
+
+    def test_synthesize_sees_summaries_not_raw_outputs(self):
+        fn = ScriptedProvider()
+        rec = engine.execute_tree(tree(), "big task", fn)
+        synth_calls = [c for c in rec["calls"] if c["kind"] == "synthesize"]
+        self.assertEqual(len(synth_calls), 1)
+        user = synth_calls[0]["user"]
+        self.assertIn("SUMMARY", user)  # compact summaries present
+        self.assertIn("transcript.json", user)  # pointers present
+        self.assertNotIn("LEAF:", user)  # raw child outputs absent
+
+    def test_summarize_failure_falls_back_to_truncation(self):
+        long_answer = "x" * 800
+
+        def flaky(provider, model, system, user, kind):
+            usage = {"input_tokens": 1, "output_tokens": 1}
+            if kind == "summarize":
+                raise RuntimeError("summarizer down")
+            if kind == "decompose":
+                return "1) x", usage
+            return long_answer, usage
+
+        node = config.validate(
+            {
+                "name": "root",
+                "provider": "anthropic",
+                "model": "m",
+                "role": "r",
+                "children": [
+                    {"name": "c1", "provider": "openai", "model": "m", "role": "r"}
+                ],
+            }
+        )
+        rec = engine.execute_tree(node, "t", flaky)
+        self.assertEqual(rec["status"], "ok")  # run survives the summarize failure
+        s = rec["children"][0]["summary"]
+        self.assertTrue(s["summary_fallback"])
+        self.assertEqual(s["summary"], "x" * 500 + "...")
+
+    def test_full_context_disables_summaries(self):
+        fn = ScriptedProvider()
+        rec = engine.execute_tree(tree(), "big task", fn, summary_mode=False)
+        self.assertEqual(rec["status"], "ok")
+        kinds = [c[2] for c in fn.calls]
+        self.assertNotIn("summarize", kinds)
+        for child in rec["children"]:
+            self.assertNotIn("summary", child)
+        synth_calls = [c for c in rec["calls"] if c["kind"] == "synthesize"]
+        user = synth_calls[0]["user"]
+        self.assertIn("LEAF:", user)  # raw outputs restored
+        self.assertNotIn("SUMMARY", user)
+
+    def test_dry_run_summarize_deterministic(self):
+        rec1 = engine.execute_tree(tree(), "demo task", engine.dry_run_provider)
+        rec2 = engine.execute_tree(tree(), "demo task", engine.dry_run_provider)
+        self.assertEqual(rec1["tokens"], rec2["tokens"])
+        summarize_calls = [
+            c for c in rec1["children"][0]["calls"] if c["kind"] == "summarize"
+        ]
+        self.assertEqual(len(summarize_calls), 1)
+        self.assertIn("dry-run summary", summarize_calls[0]["response"])
+        self.assertEqual(summarize_calls[0]["usage"]["output_tokens"], 50)
+
+    def test_summary_artifact_extraction(self):
+        def rich(provider, model, system, user, kind):
+            usage = {"input_tokens": 1, "output_tokens": 1}
+            if kind == "decompose":
+                return "1) x", usage
+            if kind == "leaf":
+                return (
+                    "Done. Wrote the plan to /tmp/plan.md and "
+                    "src/report.json; details at https://example.com/report.",
+                    usage,
+                )
+            return "ok", usage
+
+        node = config.validate(
+            {
+                "name": "root",
+                "provider": "anthropic",
+                "model": "m",
+                "role": "r",
+                "children": [
+                    {"name": "c1", "provider": "openai", "model": "m", "role": "r"}
+                ],
+            }
+        )
+        rec = engine.execute_tree(node, "t", rich)
+        arts = rec["children"][0]["summary"]["artifacts"]
+        self.assertIn("/tmp/plan.md", arts)
+        self.assertIn("src/report.json", arts)
+        self.assertIn("https://example.com/report", arts)
+
+    def test_extract_artifacts_unit(self):
+        self.assertEqual(
+            engine._extract_artifacts("see /a/b.py and https://x.io/y, also z.md"),
+            ["https://x.io/y", "/a/b.py", "z.md"],  # URLs first, then paths
+        )
+        self.assertEqual(engine._extract_artifacts(""), [])
+        self.assertEqual(engine._extract_artifacts(None), [])
+        # no false positives on plain prose
+        self.assertEqual(engine._extract_artifacts("the cat sat on the mat"), [])
 
 
 class TestRender(unittest.TestCase):
