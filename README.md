@@ -164,6 +164,32 @@ swarm-tree run --tree tree.yaml --task "..." --full-context  # old behavior: ful
 
 `swarm-tree validate` reports the effective setting for a config.
 
+A failed sub-agent no longer kills the run: the child is recorded with its
+error, its summary is marked `failed`, and the parent synthesizes an answer
+from whatever the surviving children produced — flagging the failure
+explicitly instead of silently working around it. The CLI exits 1 and prints
+a warning when any sub-agent failed, so a degraded run never looks clean.
+
+## How it saves tokens
+
+The naive way to review a tree: every internal node's synthesize prompt
+re-reads the full output of every child — and each child's output already
+contains *its* children's full outputs. For a tree with branching factor `b`
+and depth `d`, the tokens re-read near the top grow roughly like `b^d`: the
+same content is paid for again at every level it bubbles through.
+
+swarm-tree's summary mode (default on) replaces that with one ~150-word
+summarize call per child — a few hundred tokens — and the synthesize prompt
+sees only those summaries. Review cost per internal node drops from "the sum
+of all descendant outputs" to "one short summary per direct child": linear
+in the number of children instead of exponential in depth.
+
+Concrete numbers from `--dry-run` on the example tree (6 nodes, depth 3):
+the root's synthesize prompt carries 3 child summaries (~a few hundred
+tokens) instead of the full outputs of 5 descendants. The 5 summarize calls
+cost a fixed ~250 output tokens total (50 each in dry-run) — less than
+re-reading even one long child output once. Deeper tree, bigger win.
+
 ## Other commands
 
 ```bash
@@ -185,7 +211,7 @@ swarm-tree example                      # print a starter tree.yaml
 python -m unittest discover -s tests
 ```
 
-59 tests, all green. Network calls are stubbed; provider tests never touch
+74 tests, all green. Network calls are stubbed; provider tests never touch
 the real APIs.
 
 ## License
