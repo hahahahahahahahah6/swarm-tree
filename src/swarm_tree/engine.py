@@ -6,8 +6,13 @@ An internal node:
   1. calls its provider with (role + task + the children's roles) to produce
      one subtask per child (decompose step);
   2. runs its children in parallel (threads);
-  3. calls its provider again with all child results to produce the final
-     answer (synthesize step).
+  3. summarizes each child with one cheap call to that child's own
+     provider/model (summary mode, default on) — or skips this with
+     summary_mode=False;
+  4. calls its provider again with the child results to produce the final
+     answer (synthesize step). In summary mode the synthesize prompt sees
+     only the compact summaries, never the raw child outputs; full outputs
+     stay in the transcript with pointers.
 
 Every provider call is recorded in the node transcript (prompts, response,
 timings) so the whole run can be audited afterwards.
@@ -100,10 +105,28 @@ def _decompose_prompt(node: dict, task: str) -> str:
     )
 
 
-def _synthesize_prompt(task: str, child_records: list) -> str:
-    results = "\n\n".join(
-        f"[{c['name']}]:\n{c['response']}" for c in child_records
-    )
+def _synthesize_prompt(task: str, child_records: list, summary_mode: bool) -> str:
+    if summary_mode:
+        # Parent sees compact summaries + pointers, never raw child outputs.
+        parts = []
+        for c in child_records:
+            s = c.get("summary", {})
+            toks = s.get("tokens", {})
+            parts.append(
+                f"[{c['name']} ({c['provider']}/{c['model']}, "
+                f"status: {s.get('status', '?')})]:\n"
+                f"{s.get('summary', '')}\n"
+                f"Artifacts: {', '.join(s.get('artifacts', [])) or 'none'}\n"
+                f"Tokens used by this sub-agent (in/out): "
+                f"{toks.get('input', 0)}/{toks.get('output', 0)}\n"
+                f"(full transcript for this agent is in transcript.json "
+                f"under node '{c['name']}')"
+            )
+        results = "\n\n".join(parts)
+    else:
+        results = "\n\n".join(
+            f"[{c['name']}]:\n{c['response']}" for c in child_records
+        )
     return (
         f"Original task:\n{task}\n\n"
         f"Sub-agent results:\n{results}\n\n"
@@ -112,7 +135,79 @@ def _synthesize_prompt(task: str, child_records: list) -> str:
     )
 
 
-def _run_node(node: dict, task: str, fn, max_tokens: int, record: dict) -> None:
+_SUMMARIZE_PROMPT = (
+    "Summarize what you accomplished, the key decisions you made, and where "
+    "the full output is stored. Keep it to ~150 words max."
+)
+
+_URL_RE = re.compile(r"https?://[^\s)>\"]+")
+# file-ish tokens: src/foo.py, /tmp/bar.md, docs/a/b.json
+_PATH_RE = re.compile(
+    r"(?:^|[\s(\[{'\"])"
+    r"(/?(?:[A-Za-z0-9_.\-]+/)*[A-Za-z0-9_.\-]+\.[A-Za-z0-9]{1,5})"
+    r"(?=[\s)\]}\",'\";:.!?]|$)"
+)
+
+
+def _extract_artifacts(text: str | None) -> list:
+    """Pull file paths and URLs out of a child's final answer (best effort)."""
+    if not text:
+        return []
+    found = []
+    for m in _URL_RE.finditer(text):
+        found.append(m.group(0).rstrip(".,;)"))
+    for m in _PATH_RE.finditer(text):
+        found.append(m.group(1))
+    seen, out = set(), []
+    for item in found:
+        if item not in seen:
+            seen.add(item)
+            out.append(item)
+    return out[:10]
+
+
+def _make_summary(fn, node: dict, child_record: dict, max_tokens: int) -> None:
+    """Summarize a finished child into child_record["summary"].
+
+    One extra call to the child's own provider/model. On failure the summary
+    falls back to a 500-char truncation of the child's answer — the run never
+    crashes because of a summarize call. The summarize call's own usage is
+    recorded on the child's calls list, so it shows up in token rollups.
+    """
+    answer = child_record.get("response") or ""
+    artifacts = _extract_artifacts(answer)
+    system = f"You are the '{node['name']}' agent. {node['role']}"
+    user = f"{_SUMMARIZE_PROMPT}\n\nYour completed work:\n{answer}"
+    started = time.monotonic()
+    fallback = False
+    try:
+        response, usage = fn(node["provider"], node["model"], system, user,
+                             "summarize")
+        child_record["calls"].append(
+            {"kind": "summarize", "system": system, "user": user,
+             "response": response, "duration_s": round(time.monotonic() - started, 3),
+             "usage": usage}
+        )
+        summary_text = response
+    except Exception:  # noqa: BLE001 - fallback below, never crash the run
+        summary_text = (answer[:500] + ("..." if len(answer) > 500 else "")) \
+            or "(no output)"
+        fallback = True
+    _rollup(child_record)  # subtree tokens, including this summarize call
+    child_record["summary"] = {
+        "name": node["name"],
+        "provider": node["provider"],
+        "model": node["model"],
+        "status": child_record.get("status", "unknown"),
+        "summary": summary_text,
+        "artifacts": artifacts,
+        "tokens": dict(child_record["tokens"]),
+        "summary_fallback": fallback,
+    }
+
+
+def _run_node(node: dict, task: str, fn, max_tokens: int, record: dict,
+              summary_mode: bool) -> None:
     """Fill in `record` by executing `node`; raises on failure (record keeps the error)."""
     if not node["children"]:
         record["response"] = _call(fn, node, f"Task:\n{task}", "leaf", record, max_tokens)
@@ -125,7 +220,8 @@ def _run_node(node: dict, task: str, fn, max_tokens: int, record: dict) -> None:
     record["children"] = child_records  # attached before threads run: partial transcripts survive
     with ThreadPoolExecutor(max_workers=len(node["children"])) as pool:
         futures = [
-            (child["name"], pool.submit(_run_child, child, subtask, fn, max_tokens, crec))
+            (child["name"], pool.submit(_run_child, child, subtask, fn, max_tokens,
+                                        crec, summary_mode))
             for child, subtask, crec in zip(node["children"], subtasks, child_records)
         ]
         failures = []
@@ -136,14 +232,22 @@ def _run_node(node: dict, task: str, fn, max_tokens: int, record: dict) -> None:
                 failures.append(f"{name} ({exc})")
     if failures:
         raise RuntimeError(f"child agents failed: {'; '.join(failures)}")
-    record["response"] = _call(fn, node, _synthesize_prompt(task, child_records),
-                               "synthesize", record, max_tokens)
+    if summary_mode:
+        # One cheap summarize call per child (on the child's own
+        # provider/model) so the synthesize step sees compact summaries
+        # instead of full child transcripts.
+        for child, crec in zip(node["children"], child_records):
+            _make_summary(fn, child, crec, max_tokens)
+    record["response"] = _call(
+        fn, node, _synthesize_prompt(task, child_records, summary_mode),
+        "synthesize", record, max_tokens)
 
 
-def _run_child(child: dict, subtask: str, fn, max_tokens: int, record: dict) -> None:
+def _run_child(child: dict, subtask: str, fn, max_tokens: int, record: dict,
+               summary_mode: bool) -> None:
     started = time.monotonic()
     try:
-        _run_node(child, subtask, fn, max_tokens, record)
+        _run_node(child, subtask, fn, max_tokens, record, summary_mode)
         record["status"] = "ok"
     except Exception as exc:  # noqa: BLE001 - recorded verbatim in the transcript
         record["status"] = "error"
@@ -171,8 +275,15 @@ def _rollup(record: dict) -> dict:
     return record["tokens"]
 
 
-def execute_tree(node: dict, task: str, provider_fn=None, max_tokens: int = 1024) -> dict:
-    """Run the tree on a task. Always returns the root record (errors are recorded)."""
+def execute_tree(node: dict, task: str, provider_fn=None, max_tokens: int = 1024,
+                 summary_mode: bool = True) -> dict:
+    """Run the tree on a task. Always returns the root record (errors are recorded).
+
+    summary_mode=True (default): each internal node summarizes its children
+    with one cheap call each, and the synthesize step sees only those
+    summaries. summary_mode=False passes full child outputs up (the old
+    behavior; see --full-context).
+    """
     fn = provider_fn or (
         lambda provider, model, system, user, kind: providers.call(
             provider, model, system, user, max_tokens=max_tokens
@@ -181,7 +292,7 @@ def execute_tree(node: dict, task: str, provider_fn=None, max_tokens: int = 1024
     started = time.monotonic()
     record = _new_record(node)
     try:
-        _run_node(node, task, fn, max_tokens, record)
+        _run_node(node, task, fn, max_tokens, record, summary_mode)
         record["status"] = "ok"
     except Exception as exc:  # noqa: BLE001 - recorded verbatim in the transcript
         record["status"] = "error"
@@ -198,7 +309,7 @@ _NAME_RE = re.compile(r"You are the '([^']+)' agent")
 
 
 # Fixed fake output tokens per call kind in dry-run mode.
-_DRY_RUN_OUTPUT = {"leaf": 60, "decompose": 40, "synthesize": 80}
+_DRY_RUN_OUTPUT = {"leaf": 60, "decompose": 40, "synthesize": 80, "summarize": 50}
 
 
 def dry_run_provider(provider: str, model: str, system: str, user: str, kind: str) -> tuple:
@@ -222,6 +333,11 @@ def dry_run_provider(provider: str, model: str, system: str, user: str, kind: st
             for i, child in enumerate(children)
         ]
         return "\n".join(lines), usage
+    if kind == "summarize":
+        return (
+            f"[{name}] dry-run summary: finished the assigned subtask; "
+            f"key decisions and artifacts are in the full dry-run transcript."
+        ), usage
     if kind == "synthesize":
         n = len(_RESULT_RE.findall(user))
         return (
