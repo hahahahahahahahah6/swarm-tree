@@ -90,15 +90,29 @@ class TestCall(unittest.TestCase):
         return result, sent
 
     def test_openai_roundtrip(self):
-        result, sent = self._run("openai", {"choices": [{"message": {"content": "ok"}}]})
-        self.assertEqual(result, "ok")
+        result, sent = self._run(
+            "openai",
+            {
+                "choices": [{"message": {"content": "ok"}}],
+                "usage": {"prompt_tokens": 12, "completion_tokens": 3},
+            },
+        )
+        text, usage = result
+        self.assertEqual(text, "ok")
+        self.assertEqual(usage, {"input_tokens": 12, "output_tokens": 3})
         self.assertEqual(sent["model"], "m")
 
     def test_gemini_roundtrip(self):
         result, _ = self._run(
-            "gemini", {"candidates": [{"content": {"parts": [{"text": "ok"}]}}]}
+            "gemini",
+            {
+                "candidates": [{"content": {"parts": [{"text": "ok"}]}}],
+                "usageMetadata": {"promptTokenCount": 21, "candidatesTokenCount": 4},
+            },
         )
-        self.assertEqual(result, "ok")
+        text, usage = result
+        self.assertEqual(text, "ok")
+        self.assertEqual(usage, {"input_tokens": 21, "output_tokens": 4})
 
     def test_http_error_wrapped(self):
         err = urllib.error.HTTPError(
@@ -117,6 +131,90 @@ class TestCall(unittest.TestCase):
                 with self.assertRaises(providers.ProviderError) as ctx:
                     providers.call("anthropic", "m", "s", "u")
         self.assertNotIn("topsecret123", str(ctx.exception))
+
+
+class TestUsage(unittest.TestCase):
+    def _usage(self, provider, payload):
+        with mock.patch.dict(os.environ, {providers.ENV_VARS[provider]: "k"}):
+            with mock.patch("urllib.request.urlopen", return_value=_resp(payload)):
+                _, usage = providers.call(provider, "m", "sys", "usr")
+        return usage
+
+    def test_anthropic(self):
+        usage = self._usage(
+            "anthropic",
+            {
+                "content": [{"type": "text", "text": "hi"}],
+                "usage": {"input_tokens": 100, "output_tokens": 25},
+            },
+        )
+        self.assertEqual(usage, {"input_tokens": 100, "output_tokens": 25})
+
+    def test_openai(self):
+        usage = self._usage(
+            "openai",
+            {
+                "choices": [{"message": {"content": "hi"}}],
+                "usage": {"prompt_tokens": 200, "completion_tokens": 50, "total_tokens": 250},
+            },
+        )
+        self.assertEqual(usage, {"input_tokens": 200, "output_tokens": 50})
+
+    def test_xai(self):
+        usage = self._usage(
+            "xai",
+            {
+                "choices": [{"message": {"content": "hi"}}],
+                "usage": {"prompt_tokens": 30, "completion_tokens": 8},
+            },
+        )
+        self.assertEqual(usage, {"input_tokens": 30, "output_tokens": 8})
+
+    def test_deepseek(self):
+        usage = self._usage(
+            "deepseek",
+            {
+                "choices": [{"message": {"content": "hi"}}],
+                "usage": {"prompt_tokens": 44, "completion_tokens": 11},
+            },
+        )
+        self.assertEqual(usage, {"input_tokens": 44, "output_tokens": 11})
+
+    def test_gemini(self):
+        usage = self._usage(
+            "gemini",
+            {
+                "candidates": [{"content": {"parts": [{"text": "hi"}]}}],
+                "usageMetadata": {
+                    "promptTokenCount": 60,
+                    "candidatesTokenCount": 15,
+                    "totalTokenCount": 75,
+                },
+            },
+        )
+        self.assertEqual(usage, {"input_tokens": 60, "output_tokens": 15})
+
+    def test_missing_usage_degrades_to_zero(self):
+        for provider, payload in (
+            ("anthropic", {"content": [{"type": "text", "text": "hi"}]}),
+            ("openai", {"choices": [{"message": {"content": "hi"}}]}),
+            ("gemini", {"candidates": [{"content": {"parts": [{"text": "hi"}]}}]}),
+        ):
+            self.assertEqual(
+                self._usage(provider, payload),
+                {"input_tokens": 0, "output_tokens": 0},
+                provider,
+            )
+
+    def test_null_counts_degrade_to_zero(self):
+        usage = self._usage(
+            "openai",
+            {
+                "choices": [{"message": {"content": "hi"}}],
+                "usage": {"prompt_tokens": None, "completion_tokens": None},
+            },
+        )
+        self.assertEqual(usage, {"input_tokens": 0, "output_tokens": 0})
 
 
 if __name__ == "__main__":
