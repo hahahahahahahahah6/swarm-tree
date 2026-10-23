@@ -20,14 +20,6 @@ The runtime core is standard-library only (no vendor SDKs, no frameworks).
 Tree configs can be YAML — which requires PyYAML (`pip install "swarm-tree[yaml]"`)
 — or plain JSON, which always works.
 
-## Studio (visual editor)
-
-Don't want to hand-write YAML? Open
-[`studio/swarm-tree-studio.html`](studio/swarm-tree-studio.html) in a browser —
-a single-file visual tree builder: click nodes to edit them, pick a provider
-per agent, live validation against the CLI's rules, and one-click YAML/JSON
-export that `swarm-tree validate` accepts.
-
 ## Install
 
 ```bash
@@ -232,6 +224,54 @@ swarm-tree run --tree tree.yaml --task "..." --fail-fast         # abort on firs
 swarm-tree run --tree tree.yaml --task "..." --max-concurrency 4 # tighter API budget
 ```
 
+## Serve mode (v0.3): a tree that stays up
+
+`run` executes one task and exits. `serve` keeps the tree resident: any node
+with a `schedule` runs its own `task` on its own cadence, transcripts persist
+per run, and the root rolls the tick's fresh outputs into a daily markdown
+briefing — think "CEO briefing" for your agent team.
+
+```yaml
+name: ceo
+provider: anthropic
+model: claude-sonnet-4-5
+role: You are the chief-of-staff. Aggregate department briefings.
+rollup: true            # root aggregates each tick into a daily briefing
+serve_dir: ./serve-data # transcripts, state, briefings land here
+children:
+  - name: shop-agent
+    provider: deepseek
+    model: deepseek-chat
+    role: You watch shop metrics and flag anomalies.
+    schedule: 30m       # interval: 30s | 5m | 2h | 1d
+    task: Check today's orders, refunds and GMV; flag anything unusual.
+  - name: research-agent
+    provider: gemini
+    model: gemini-2.5-pro
+    role: You track the market each morning.
+    schedule: "08:05"   # daily at 08:05 local time
+    task: Summarize overnight market moves relevant to our watchlist.
+  - name: helper        # no schedule: only aggregates, never fires alone
+    provider: xai
+    model: grok-4
+    role: You answer ad-hoc questions from the CEO.
+```
+
+```bash
+swarm-tree serve --tree tree.yaml --dry-run   # resident loop ($0.00)
+swarm-tree serve --tree tree.yaml --once      # one tick, then exit (cron/systemd)
+swarm-tree status --tree tree.yaml            # schedule table, no keys needed
+swarm-tree report --tree tree.yaml            # latest daily briefing
+swarm-tree report --tree tree.yaml --node shop-agent  # one node's latest output
+```
+
+Semantics: the first run fires immediately; afterwards each node follows its
+schedule. Missed ticks are skipped, never backfilled (a restart resumes the
+cadence instead of replaying the backlog). State lives in
+`<serve_dir>/state.json`, transcripts in `<serve_dir>/runs/<node>/`, briefings
+in `<serve_dir>/report-YYYY-MM-DD.md`. `enabled: false` takes a node out of
+the rotation without deleting it. Ctrl-C stops the loop; state is always kept.
+
 ## Rules enforced on the tree
 
 - Each node needs `name`, `provider`, `model`, `role`; `children` is optional.
@@ -247,7 +287,12 @@ swarm-tree run --tree tree.yaml --task "..." --max-concurrency 4 # tighter API b
   concurrent provider calls), `timeout` (default 120, seconds per provider
   call), `prices` (override the built-in approximate price table),
   `summarizer: {provider, model}` (cheap compressor model; per-node
-  override also accepted).
+  override also accepted), `serve_dir` (default `./serve-data`, where serve
+  mode keeps state/transcripts/briefings), `rollup: true|false` (default
+  `true`, daily briefing aggregation in serve mode).
+- Per-node serve knobs (all optional): `schedule` (`"30m"` interval or
+  `"08:05"` daily local time), `task` (the node's recurring task text),
+  `enabled: true|false` (default `true`).
 - Configs can be YAML (requires PyYAML: `pip install "swarm-tree[yaml]"`)
   or plain JSON (always works).
 
