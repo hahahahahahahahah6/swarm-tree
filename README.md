@@ -89,23 +89,47 @@ The finished tree rendered as ASCII — every node shows its name,
 provider/model, status, timing, and a truncated result:
 
 ```
-● orchestrator [anthropic/claude-sonnet-4-5] ok 0.0s
+● orchestrator [anthropic/claude-sonnet-4-5] ok 0.0s 757/480
   ↳ "[orchestrator] dry-run synthesis: combined 3 sub-agent result(s) into one…"
-├── ● grok-agent [xai/grok-4] ok 0.0s
+├── ● grok-agent [xai/grok-4] ok 0.0s 43/60
 │   ↳ "[grok-agent] dry-run result from xai/grok-4: Do the grok-agent part of:…"
-├── ● gemini-agent [gemini/gemini-2.5-pro] ok 0.0s
+├── ● gemini-agent [gemini/gemini-2.5-pro] ok 0.0s 41/60
 │   ↳ "[gemini-agent] dry-run result from gemini/gemini-2.5-pro: Do the gemini-…"
-└── ● gpt-agent [openai/gpt-5] ok 0.0s
+└── ● gpt-agent [openai/gpt-5] ok 0.0s 334/240
     ↳ "[gpt-agent] dry-run synthesis: combined 2 sub-agent result(s) into one…"
-    ├── ● code-reviewer [deepseek/deepseek-chat] ok 0.0s
+    ├── ● code-reviewer [deepseek/deepseek-chat] ok 0.0s 43/60
     │   ↳ "[code-reviewer] dry-run result from deepseek/deepseek-chat: Do the…"
-    └── ● writer [anthropic/claude-sonnet-4-5] ok 0.0s
+    └── ● writer [anthropic/claude-sonnet-4-5] ok 0.0s 38/60
         ↳ "[writer] dry-run result from anthropic/claude-sonnet-4-5: Do the wri…"
 ```
 
+The trailing `757/480` on each node is input/output tokens: each node's
+number is its own calls **plus all its descendants**, so the root line is
+the grand total for the whole run. That is the whole point — you can see
+at a glance which branch is eating your quota.
+
 Then the root's final answer, and a full JSON transcript
 (`transcript.json`) with every node, every prompt, every raw response,
-and per-call timings — so the whole run is auditable.
+per-call timings, **and per-call token usage** (`usage.input_tokens` /
+`usage.output_tokens` parsed from each provider's API response) — so the
+whole run is auditable.
+
+## Token accounting
+
+Token usage is parsed from each provider's native response format and
+normalized to `{"input_tokens": int, "output_tokens": int}`:
+
+| Provider | Source fields |
+|---|---|
+| anthropic | `usage.input_tokens` / `usage.output_tokens` |
+| openai, xai, deepseek | `usage.prompt_tokens` / `usage.completion_tokens` |
+| gemini | `usageMetadata.promptTokenCount` / `usageMetadata.candidatesTokenCount` |
+
+Missing or malformed usage degrades to `0/0` instead of failing the run.
+In `--dry-run` mode the mock provider returns deterministic fake usage
+(`input_tokens` ≈ 1 per 4 prompt chars, `output_tokens` fixed per call
+kind: 60 leaf / 40 decompose / 80 synthesize) so the entire accounting
+path — parsing, rollup, rendering — is exercised for $0.00 with no keys.
 
 ## Other commands
 
@@ -127,7 +151,7 @@ swarm-tree example                      # print a starter tree.yaml
 python -m unittest discover -s tests
 ```
 
-36 tests, all green. Network calls are stubbed; provider tests never touch
+48 tests, all green. Network calls are stubbed; provider tests never touch
 the real APIs.
 
 ## License
