@@ -131,6 +131,39 @@ In `--dry-run` mode the mock provider returns deterministic fake usage
 kind: 60 leaf / 40 decompose / 80 synthesize) so the entire accounting
 path — parsing, rollup, rendering — is exercised for $0.00 with no keys.
 
+## Summary mode
+
+The classic multi-agent failure: every reviewer re-reads every worker's full
+output, and the "coordination" costs more tokens than the work itself. By
+default, swarm-tree avoids this.
+
+After each child subtree finishes, the parent makes **one extra call to that
+child's own provider/model**: *"summarize what you accomplished, key
+decisions, and where the full output is stored (~150 words max)."* The
+synthesize step then sees only these compact summaries — plus extracted
+artifacts (file paths / URLs mentioned in the child's answer), the subtree's
+token usage, and a pointer to the full transcript — **never the raw child
+outputs**. Nothing is lost: `transcript.json` still records every prompt,
+every raw response, and every per-call token count.
+
+The economics: one cheap summarize call per child versus re-reading every
+child's entire output in the synthesize prompt. If the summarize call itself
+fails, the summary falls back to a 500-char truncation of the child's
+answer — the run never crashes because of it.
+
+Control it two ways:
+
+```yaml
+# tree.yaml (root level, default true)
+summary_mode: false
+```
+
+```bash
+swarm-tree run --tree tree.yaml --task "..." --full-context  # old behavior: full child outputs passed up
+```
+
+`swarm-tree validate` reports the effective setting for a config.
+
 ## Other commands
 
 ```bash
@@ -143,6 +176,7 @@ swarm-tree example                      # print a starter tree.yaml
 - Each node needs `name`, `provider`, `model`, `role`; `children` is optional.
 - Providers: `anthropic`, `openai`, `gemini`, `xai`, `deepseek`.
 - Max depth 4 (root is depth 0); cycles are rejected.
+- Root may set `summary_mode: true|false` (default `true`); must be a boolean.
 - Configs can be YAML (parsed with PyYAML when installed) or plain JSON.
 
 ## Tests
@@ -151,7 +185,7 @@ swarm-tree example                      # print a starter tree.yaml
 python -m unittest discover -s tests
 ```
 
-48 tests, all green. Network calls are stubbed; provider tests never touch
+59 tests, all green. Network calls are stubbed; provider tests never touch
 the real APIs.
 
 ## License
