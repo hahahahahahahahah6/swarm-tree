@@ -13,8 +13,10 @@ so a restart resumes the schedule without replaying missed ticks.
 from __future__ import annotations
 
 import datetime
+import hashlib
 import json
 import os
+import subprocess
 import time
 
 from . import config, engine
@@ -108,6 +110,101 @@ def _stamp() -> str:
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
+def _utcnow_iso() -> str:
+    return datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+
+TRIGGER_TIMEOUT = 30  # seconds for a trigger check command
+
+
+def run_trigger_check(command: str) -> tuple:
+    """Run a node's `trigger` shell command.
+
+    Returns (ok, stdout_hash, note). ok=False means the check itself failed
+    (nonzero exit, timeout, OSError) — callers must FAIL OPEN and run the
+    node anyway. ok=True carries the sha256 of stdout for change detection.
+    """
+    try:
+        proc = subprocess.run(
+            command, shell=True, capture_output=True, text=True,
+            timeout=TRIGGER_TIMEOUT)
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        return (False, None, f"trigger check failed: {exc}")
+    if proc.returncode != 0:
+        err = (proc.stderr or "").strip()
+        detail = f"exit {proc.returncode}" + (f": {err[:200]}" if err else "")
+        return (False, None, f"trigger check failed: {detail}")
+    digest = hashlib.sha256(proc.stdout.encode("utf-8")).hexdigest()
+    return (True, digest, "")
+
+
+def harvest_decisions(response_text) -> list:
+    """Collect `DECISION:` lines from a node's output text."""
+    found = []
+    for line in (response_text or "").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("DECISION:"):
+            text = stripped[len("DECISION:"):].strip()
+            if text:
+                found.append(text)
+    return found
+
+
+def get_queue(state: dict) -> list:
+    """Pending owner-action items: [{"node", "text", "added_at"}]."""
+    queue = state.get("queue", [])
+    return queue if isinstance(queue, list) else []
+
+
+def queue_add(state: dict, name: str, texts: list) -> int:
+    """Append decision texts to the queue, deduped on (node, text).
+
+    Returns the number of items actually added."""
+    queue = get_queue(state)
+    seen = {(item.get("node"), item.get("text")) for item in queue}
+    added = 0
+    for text in texts:
+        if (name, text) not in seen:
+            queue.append({"node": name, "text": text,
+                          "added_at": _utcnow_iso()})
+            seen.add((name, text))
+            added += 1
+    state["queue"] = queue
+    return added
+
+
+def queue_clear(state: dict) -> int:
+    """Empty the owner-action queue. Returns the number of items removed."""
+    removed = len(get_queue(state))
+    state["queue"] = []
+    return removed
+
+
+def _node_spend(state: dict, name: str) -> float:
+    spend = state.get("_spend", {})
+    if not isinstance(spend, dict):
+        return 0.0
+    try:
+        return float(spend.get(name, 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _add_spend(state: dict, name: str, cost_usd: float) -> float:
+    """Accumulate a node's lifetime spend. Returns the new total."""
+    spend = state.get("_spend")
+    if not isinstance(spend, dict):
+        spend = {}
+        state["_spend"] = spend
+    try:
+        cost = float(cost_usd or 0.0)
+    except (TypeError, ValueError):
+        cost = 0.0
+    total = round(_node_spend(state, name) + cost, 6)
+    spend[name] = total
+    return total
+
+
 def _write_run_transcript(serve_dir: str, name: str, task: str,
                           record: dict, dry_run: bool, version: str) -> str:
     run_dir = os.path.join(serve_dir, RUNS_DIR, name)
@@ -150,10 +247,100 @@ def run_tick(node: dict, provider_fn, *, serve_dir: str, dry_run: bool,
     results = []
     for name, sub in due_nodes(node, state, now):
         task = sub.get("task") or f"Run your scheduled check for '{name}'."
+        entry = state.get(name, {})
+        if not isinstance(entry, dict):
+            entry = {}
+
+        # --- v0.4 budget gate: cumulative spend vs per-node budget_usd ---
+        budget = sub.get("budget_usd")
+        spent = _node_spend(state, name)
+        if budget is not None and spent >= budget:
+            ran_at = time.time()
+            state[name] = {
+                "schedule": sub["schedule"],
+                "last_run": ran_at,
+                "next_run": next_run_after(sub["schedule"], ran_at, ran_at),
+                "last_status": "budget-exceeded",
+                "last_transcript": entry.get("last_transcript"),
+                "trigger": entry.get("trigger"),
+                "trigger_hash": entry.get("trigger_hash"),
+            }
+            save_state(serve_dir, state)
+            print(f"tick: {name} -> budget exceeded "
+                  f"(spent ${spent:.6f} >= budget ${budget:.6f}); skipping")
+            results.append({
+                "name": name,
+                "schedule": sub["schedule"],
+                "task": task,
+                "status": "budget-exceeded",
+                "transcript": None,
+                "record": {"status": "budget-exceeded", "response": "",
+                           "tokens": {"input": 0, "output": 0,
+                                      "cost_usd": 0.0}},
+            })
+            continue
+
+        # --- v0.4 trigger gate: skip the LLM call when nothing changed ---
+        trigger_cmd = sub.get("trigger")
+        trigger_outcome = None
+        trigger_note = ""
+        if trigger_cmd:
+            ok, digest, note = run_trigger_check(trigger_cmd)
+            if ok and digest == entry.get("trigger_hash"):
+                ran_at = time.time()
+                record = {"status": "skipped",
+                          "response": "trigger skipped: stdout unchanged "
+                                      f"since last tick ({trigger_cmd})",
+                          "tokens": {"input": 0, "output": 0,
+                                     "cost_usd": 0.0}}
+                path = _write_run_transcript(serve_dir, name, task, record,
+                                             dry_run, version)
+                state[name] = {
+                    "schedule": sub["schedule"],
+                    "last_run": ran_at,
+                    "next_run": next_run_after(sub["schedule"], ran_at, ran_at),
+                    "last_status": "skipped",
+                    "last_transcript": path,
+                    "trigger": "skipped",
+                    "trigger_hash": digest,
+                }
+                save_state(serve_dir, state)
+                print(f"tick: {name} -> skipped (trigger: stdout unchanged)")
+                results.append({
+                    "name": name,
+                    "schedule": sub["schedule"],
+                    "task": task,
+                    "status": "skipped",
+                    "transcript": path,
+                    "record": record,
+                    "trigger": "skipped",
+                })
+                continue
+            if ok:
+                entry["trigger_hash"] = digest
+                trigger_outcome = "ran"
+            else:
+                # Fail open: a broken check must never silence the node.
+                trigger_outcome = "check-failed"
+                trigger_note = note
+                print(f"tick: {name} -> trigger check failed, "
+                      f"running anyway ({note})")
+
         record = engine.execute_tree(
             sub, task, provider_fn, max_tokens,
             summary_mode=summary_mode, fail_fast=fail_fast,
             max_concurrency=max_concurrency, timeout=timeout)
+        if trigger_note:
+            record = dict(record)
+            record["trigger_note"] = trigger_note
+        # v0.4 owner queue: harvest DECISION: lines from the node output.
+        n_new = queue_add(state, name,
+                          harvest_decisions(record.get("response")))
+        if n_new:
+            print(f"tick: {name} -> queued {n_new} decision(s) for owner")
+        # v0.4 spend tracking (cumulative, survives restarts).
+        total = _add_spend(state, name,
+                           record.get("tokens", {}).get("cost_usd", 0.0))
         path = _write_run_transcript(serve_dir, name, task, record,
                                      dry_run, version)
         ran_at = time.time()
@@ -163,6 +350,9 @@ def run_tick(node: dict, provider_fn, *, serve_dir: str, dry_run: bool,
             "next_run": next_run_after(sub["schedule"], ran_at, ran_at),
             "last_status": record.get("status"),
             "last_transcript": path,
+            "trigger": trigger_outcome or entry.get("trigger"),
+            "trigger_hash": entry.get("trigger_hash"),
+            "spend_usd": total,
         }
         save_state(serve_dir, state)  # persist per node: a crash loses nothing
         results.append({
@@ -172,6 +362,7 @@ def run_tick(node: dict, provider_fn, *, serve_dir: str, dry_run: bool,
             "status": record.get("status"),
             "transcript": path,
             "record": record,
+            "trigger": trigger_outcome,
         })
     return results
 
@@ -228,6 +419,12 @@ def write_rollup(root: dict, tick_results: list, provider_fn, *,
     except Exception as exc:  # noqa: BLE001 - rollup must never break a tick
         body = ("_Rollup failed: %s. Raw briefings:_\n\n" % exc
                 + "\n\n".join(lines))
+    # v0.4 owner queue: pending decisions always close the briefing.
+    queue = get_queue(load_state(serve_dir))
+    if queue:
+        items = "\n".join(
+            f"- [ ] {it.get('node')}: {it.get('text')}" for it in queue)
+        body += ("\n\n## 待你拍板 (Owner Action Queue)\n" + items)
     day = datetime.datetime.now().astimezone().strftime("%Y-%m-%d")
     path = os.path.join(serve_dir, f"{REPORT_PREFIX}{day}.md")
     os.makedirs(serve_dir, exist_ok=True)
@@ -244,21 +441,42 @@ def format_status(node: dict, serve_dir: str, now: float | None = None) -> str:
     rows = []
     for name, sub in scheduled_nodes(node):
         entry = state.get(name, {})
+        if not isinstance(entry, dict):
+            entry = {}
         nxt = next_run_after(sub["schedule"], entry.get("last_run"), now)
         nxt_s = datetime.datetime.fromtimestamp(nxt).astimezone().strftime(
             "%m-%d %H:%M")
         last = entry.get("last_run")
         last_s = (datetime.datetime.fromtimestamp(last).astimezone().strftime(
             "%m-%d %H:%M") if last else "-")
+        # v0.4: trigger outcome marker.
+        trig = sub.get("trigger")
+        trig_s = entry.get("trigger") or ("armed" if trig else "-")
+        # v0.4: spend vs budget, flagged when the budget tripped.
+        budget = sub.get("budget_usd")
+        spent = _node_spend(state, name)
+        if budget is not None:
+            spend_s = f"${spent:.4f}/${budget:g}"
+            if spent >= budget:
+                spend_s += " BUDGET-EXCEEDED"
+        else:
+            spend_s = "-" if spent == 0 else f"${spent:.4f}"
         rows.append((name, sub["schedule"],
                      "on" if sub.get("enabled", True) else "off",
-                     last_s, nxt_s, entry.get("last_status", "-")))
+                     last_s, nxt_s, entry.get("last_status", "-"),
+                     trig_s, spend_s))
     if not rows:
         return "no scheduled nodes (add a `schedule:` to a node to use serve mode)"
-    header = f"{'node':<24}{'schedule':<10}{'en':<4}{'last run':<12}{'next run':<12}{'status'}"
+    header = (f"{'node':<20}{'schedule':<10}{'en':<4}{'last run':<12}"
+              f"{'next run':<12}{'status':<16}{'trigger':<12}{'spend'}")
     out = [header]
     for r in rows:
-        out.append(f"{r[0]:<24}{r[1]:<10}{r[2]:<4}{r[3]:<12}{r[4]:<12}{r[5]}")
+        out.append(f"{r[0]:<20}{r[1]:<10}{r[2]:<4}{r[3]:<12}{r[4]:<12}"
+                   f"{r[5]:<16}{r[6]:<12}{r[7]}")
+    pending = get_queue(state)
+    if pending:
+        out.append(f"\nowner queue: {len(pending)} pending "
+                   f"(swarm-tree queue to review)")
     return "\n".join(out)
 
 
