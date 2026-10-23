@@ -7,7 +7,7 @@ import datetime
 import json
 import sys
 
-from . import __version__, config, engine, providers, render
+from . import __version__, config, engine, providers, render, serve
 
 EXAMPLE_TREE = """\
 name: orchestrator
@@ -82,11 +82,115 @@ def _parser() -> argparse.ArgumentParser:
         "--tree", required=True, help="Path to tree.yaml / tree.json"
     )
     sub.add_parser("example", help="Print an example tree.yaml to stdout.")
+
+    srv = sub.add_parser("serve", help="Run the tree in serve mode: scheduled "
+                                       "nodes execute on their own cadence, "
+                                       "transcripts persist, and the root rolls "
+                                       "up a daily briefing.")
+    srv.add_argument("--tree", required=True, help="Path to tree.yaml / tree.json")
+    srv.add_argument("--dry-run", action="store_true",
+                     help="Use deterministic fake providers (no API keys, no cost)")
+    srv.add_argument("--once", action="store_true",
+                     help="Run one tick (all due nodes) and exit — for cron / "
+                          "systemd timers")
+    srv.add_argument("--serve-dir", default=None,
+                     help="Override the config's serve_dir")
+    srv.add_argument("--max-tokens", type=int, default=1024,
+                     help="Max tokens per provider call (default: 1024)")
+    srv.add_argument("--full-context", action="store_true",
+                     help="Disable summary mode for scheduled runs")
+    srv.add_argument("--fail-fast", action="store_true",
+                     help="Abort a tick's node on the first child failure")
+
+    st = sub.add_parser("status", help="Show the serve-mode schedule table "
+                                       "(no API keys needed).")
+    st.add_argument("--tree", required=True, help="Path to tree.yaml / tree.json")
+    st.add_argument("--serve-dir", default=None,
+                    help="Override the config's serve_dir")
+
+    rep = sub.add_parser("report", help="Print the latest serve-mode briefing "
+                                        "(or one node's latest output).")
+    rep.add_argument("--tree", required=True, help="Path to tree.yaml / tree.json")
+    rep.add_argument("--serve-dir", default=None,
+                     help="Override the config's serve_dir")
+    rep.add_argument("--node", default=None,
+                     help="Show one node's latest output instead of the briefing")
     return parser
 
 
 def _cmd_example() -> int:
     print(EXAMPLE_TREE, end="")
+    return 0
+
+
+def _resolve_serve_dir(node: dict, override) -> str:
+    return override or node.get("serve_dir", "serve-data")
+
+
+def _cmd_serve(args) -> int:
+    """Exit codes: 0 ok, 2 config/usage error (run_tick records node errors)."""
+    try:
+        node = config.load_config(args.tree)
+    except (config.TreeError, OSError, json.JSONDecodeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    scheduled = serve.scheduled_nodes(node)
+    if not scheduled:
+        print("error: no scheduled nodes — add a `schedule:` (e.g. '30m' or "
+              "'08:05') to at least one enabled node to use serve mode",
+              file=sys.stderr)
+        return 2
+    missing_tasks = [n for n, sub in scheduled if not sub.get("task")]
+    if missing_tasks:
+        print(f"note: {len(missing_tasks)} scheduled node(s) have no `task:` "
+              f"({', '.join(missing_tasks)}); using a generic check prompt")
+
+    if args.dry_run:
+        provider_fn = engine.dry_run_provider
+    else:
+        missing = []
+        for provider in config.providers_used(node):
+            try:
+                providers.api_key_for(provider)
+            except providers.ProviderError:
+                missing.append(providers.ENV_VARS[provider])
+        if missing:
+            print(
+                f"error: missing API keys for this tree: {', '.join(missing)} "
+                f"(set them in the environment or use --dry-run)",
+                file=sys.stderr,
+            )
+            return 2
+        provider_fn = None
+
+    summary_mode = _effective_summary_mode(node, args.full_context)
+    return serve.serve_loop(
+        node, provider_fn,
+        serve_dir=_resolve_serve_dir(node, args.serve_dir),
+        dry_run=args.dry_run, version=__version__,
+        max_tokens=args.max_tokens, summary_mode=summary_mode,
+        fail_fast=args.fail_fast,
+        max_concurrency=node.get("max_concurrency", 8),
+        timeout=node.get("timeout", 120), once=args.once)
+
+
+def _cmd_status(args) -> int:
+    try:
+        node = config.load_config(args.tree)
+    except (config.TreeError, OSError, json.JSONDecodeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(serve.format_status(node, _resolve_serve_dir(node, args.serve_dir)))
+    return 0
+
+
+def _cmd_report(args) -> int:
+    try:
+        node = config.load_config(args.tree)
+    except (config.TreeError, OSError, json.JSONDecodeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    print(serve.read_report(_resolve_serve_dir(node, args.serve_dir), args.node))
     return 0
 
 
@@ -220,6 +324,12 @@ def main(argv=None) -> int:
         return _cmd_validate(args)
     if args.command == "example":
         return _cmd_example()
+    if args.command == "serve":
+        return _cmd_serve(args)
+    if args.command == "status":
+        return _cmd_status(args)
+    if args.command == "report":
+        return _cmd_report(args)
     return 2
 
 
