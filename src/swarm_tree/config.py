@@ -45,8 +45,22 @@ def load_config(path: str) -> dict:
 
 
 def validate(data: dict) -> dict:
-    """Validate a parsed config mapping and return a normalized node dict."""
-    return _validate_node(data, depth=0, path="root", seen=set())
+    """Validate a parsed config mapping and return a normalized node dict.
+
+    The root node may carry `summary_mode: true|false` (default true):
+    whether internal nodes summarize their children before the synthesize
+    step. It must be a boolean when present.
+    """
+    if not isinstance(data, dict):
+        raise TreeError(f"root: config must be a mapping, got {type(data).__name__}")
+    summary_mode = data.get("summary_mode", True)
+    if not isinstance(summary_mode, bool):
+        raise TreeError(
+            f"root: 'summary_mode' must be true or false, got {summary_mode!r}"
+        )
+    node = _validate_node(data, depth=0, path="root", seen=set())
+    node["summary_mode"] = summary_mode
+    return node
 
 
 def _validate_node(data, depth: int, path: str, seen: set) -> dict:
