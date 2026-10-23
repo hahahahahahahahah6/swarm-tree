@@ -106,6 +106,33 @@ def _extract(provider: str, data: dict) -> str:
         raise ProviderError(f"{provider}: could not parse response: {exc}")
 
 
+def _extract_usage(provider: str, data: dict) -> dict:
+    """Normalize a provider's token-usage block to
+    {"input_tokens": int, "output_tokens": int}. Missing or malformed
+    usage degrades to 0/0 instead of raising."""
+    try:
+        if provider == "anthropic":
+            u = data.get("usage") or {}
+            return {
+                "input_tokens": int(u.get("input_tokens") or 0),
+                "output_tokens": int(u.get("output_tokens") or 0),
+            }
+        if provider == "gemini":
+            u = data.get("usageMetadata") or {}
+            return {
+                "input_tokens": int(u.get("promptTokenCount") or 0),
+                "output_tokens": int(u.get("candidatesTokenCount") or 0),
+            }
+        # openai / xai / deepseek (OpenAI-compatible wire format)
+        u = data.get("usage") or {}
+        return {
+            "input_tokens": int(u.get("prompt_tokens") or 0),
+            "output_tokens": int(u.get("completion_tokens") or 0),
+        }
+    except (TypeError, ValueError, AttributeError):
+        return {"input_tokens": 0, "output_tokens": 0}
+
+
 def call(
     provider: str,
     model: str,
@@ -113,8 +140,12 @@ def call(
     user: str,
     max_tokens: int = 1024,
     timeout: int = 120,
-) -> str:
-    """Make one chat call to a provider and return the assistant text."""
+) -> tuple:
+    """Make one chat call to a provider.
+
+    Returns (assistant_text, usage) where usage is
+    {"input_tokens": int, "output_tokens": int}.
+    """
     key = api_key_for(provider)
     url, headers, payload = _build(provider, model, system, user, key, max_tokens)
     request = urllib.request.Request(
@@ -128,4 +159,4 @@ def call(
         raise ProviderError(f"{provider} API error (HTTP {exc.code}): {body}")
     except urllib.error.URLError as exc:
         raise ProviderError(f"{provider} network error: {exc.reason}")
-    return _extract(provider, data)
+    return _extract(provider, data), _extract_usage(provider, data)
