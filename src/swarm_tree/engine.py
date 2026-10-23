@@ -22,8 +22,9 @@ from concurrent.futures import ThreadPoolExecutor
 
 from . import providers
 
-# provider_fn(provider, model, system, user, kind) -> str
-# kind is one of "leaf", "decompose", "synthesize".
+# provider_fn(provider, model, system, user, kind) -> (text, usage)
+# kind is one of "leaf", "decompose", "synthesize"; usage is
+# {"input_tokens": int, "output_tokens": int}.
 
 
 def _now_iso() -> str:
@@ -41,7 +42,8 @@ def _new_record(node: dict, subtask: str | None = None) -> dict:
         "status": "running",
         "started_at": _now_iso(),
         "duration_s": 0.0,
-        "calls": [],  # each: {kind, system, user, response, duration_s}
+        "calls": [],  # each: {kind, system, user, response, duration_s, usage}
+        "tokens": {"input": 0, "output": 0},  # own calls + descendants, after rollup
         "response": None,
         "error": None,
         "children": [],
@@ -55,11 +57,12 @@ def _finish(record: dict, started: float) -> None:
 def _call(fn, node: dict, user_prompt: str, kind: str, record: dict, max_tokens: int) -> str:
     system = f"You are the '{node['name']}' agent. {node['role']}"
     started = time.monotonic()
-    response = fn(node["provider"], node["model"], system, user_prompt, kind)
+    response, usage = fn(node["provider"], node["model"], system, user_prompt, kind)
     duration = round(time.monotonic() - started, 3)
     record["calls"].append(
         {"kind": kind, "system": system, "user": user_prompt,
-         "response": response, "duration_s": duration}
+         "response": response, "duration_s": duration,
+         "usage": usage}
     )
     return response
 
@@ -150,6 +153,24 @@ def _run_child(child: dict, subtask: str, fn, max_tokens: int, record: dict) -> 
         _finish(record, started)
 
 
+def _rollup(record: dict) -> dict:
+    """Sum token usage over a node's own calls plus all descendants.
+
+    Mutates record["tokens"] in place and returns it, so the root's
+    "tokens" is the grand total of the whole run.
+    """
+    total_in = sum(c.get("usage", {}).get("input_tokens", 0)
+                   for c in record.get("calls", []))
+    total_out = sum(c.get("usage", {}).get("output_tokens", 0)
+                    for c in record.get("calls", []))
+    for child in record.get("children", []):
+        child_totals = _rollup(child)
+        total_in += child_totals["input"]
+        total_out += child_totals["output"]
+    record["tokens"] = {"input": total_in, "output": total_out}
+    return record["tokens"]
+
+
 def execute_tree(node: dict, task: str, provider_fn=None, max_tokens: int = 1024) -> dict:
     """Run the tree on a task. Always returns the root record (errors are recorded)."""
     fn = provider_fn or (
@@ -167,6 +188,7 @@ def execute_tree(node: dict, task: str, provider_fn=None, max_tokens: int = 1024
         record["error"] = str(exc)
     finally:
         _finish(record, started)
+        _rollup(record)  # children are all settled by now
     return record
 
 
@@ -175,10 +197,23 @@ _RESULT_RE = re.compile(r"^\[.+\]:", re.MULTILINE)
 _NAME_RE = re.compile(r"You are the '([^']+)' agent")
 
 
-def dry_run_provider(provider: str, model: str, system: str, user: str, kind: str) -> str:
-    """Deterministic fake provider: no API keys, no cost. For demos and tests."""
+# Fixed fake output tokens per call kind in dry-run mode.
+_DRY_RUN_OUTPUT = {"leaf": 60, "decompose": 40, "synthesize": 80}
+
+
+def dry_run_provider(provider: str, model: str, system: str, user: str, kind: str) -> tuple:
+    """Deterministic fake provider: no API keys, no cost. For demos and tests.
+
+    Returns (text, usage). Fake usage is deterministic: input_tokens is
+    ~1 token per 4 prompt chars, output_tokens is fixed per call kind —
+    so --dry-run exercises the whole token-accounting path for $0.00.
+    """
     name = _NAME_RE.search(system)
     name = name.group(1) if name else "agent"
+    usage = {
+        "input_tokens": len(system + user) // 4,
+        "output_tokens": _DRY_RUN_OUTPUT.get(kind, 50),
+    }
     if kind == "decompose":
         children = _CHILD_RE.findall(user.split("Your sub-agents:")[-1])
         task_line = user.splitlines()[1] if len(user.splitlines()) > 1 else user[:60]
@@ -186,11 +221,14 @@ def dry_run_provider(provider: str, model: str, system: str, user: str, kind: st
             f"{i + 1}) Do the {child} part of: {task_line[:60]}"
             for i, child in enumerate(children)
         ]
-        return "\n".join(lines)
+        return "\n".join(lines), usage
     if kind == "synthesize":
         n = len(_RESULT_RE.findall(user))
         return (
             f"[{name}] dry-run synthesis: combined {n} sub-agent result(s) "
             f"into one final answer (providers: mixed, cost: $0.00)."
-        )
-    return f"[{name}] dry-run result from {provider}/{model}: {user[:80].replace(chr(10), ' ')}"
+        ), usage
+    return (
+        f"[{name}] dry-run result from {provider}/{model}: "
+        f"{user[:80].replace(chr(10), ' ')}"
+    ), usage
