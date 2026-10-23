@@ -95,6 +95,119 @@ class TestValidate(unittest.TestCase):
         )
         self.assertEqual(config.providers_used(node), ["anthropic", "gemini", "xai"])
 
+    def test_duplicate_names_rejected(self):
+        with self.assertRaises(config.TreeError) as ctx:
+            config.validate(
+                make_node(
+                    children=[
+                        make_node(name="dup", provider="openai"),
+                        make_node(name="dup", provider="xai"),
+                    ]
+                )
+            )
+        self.assertIn("duplicate", str(ctx.exception))
+
+    def test_duplicate_names_nested_rejected(self):
+        with self.assertRaises(config.TreeError):
+            config.validate(
+                make_node(
+                    children=[
+                        make_node(
+                            name="mid",
+                            provider="openai",
+                            children=[make_node(name="root", provider="xai")],
+                        )
+                    ]
+                )
+            )
+
+    def test_unknown_keys_warn_dont_crash(self):
+        import warnings
+
+        node = make_node(chilren=[])  # the classic typo
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            validated = config.validate(node)
+        self.assertTrue(any("chilren" in str(w.message) for w in caught))
+        self.assertEqual(validated["children"], [])  # typo'd key ignored, not crashed
+
+    def test_unknown_root_keys_warn(self):
+        import warnings
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            config.validate(make_node(summry_mode=True))
+        self.assertTrue(any("summry_mode" in str(w.message) for w in caught))
+
+    def test_max_concurrency_default_and_validation(self):
+        self.assertEqual(config.validate(make_node())["max_concurrency"], 8)
+        self.assertEqual(
+            config.validate(make_node(max_concurrency=2))["max_concurrency"], 2)
+        for bad in (0, -1, "many", True):
+            with self.assertRaises(config.TreeError):
+                config.validate(make_node(max_concurrency=bad))
+
+    def test_timeout_default_and_validation(self):
+        self.assertEqual(config.validate(make_node())["timeout"], 120)
+        self.assertEqual(config.validate(make_node(timeout=30))["timeout"], 30)
+        for bad in (0, -5, "fast"):
+            with self.assertRaises(config.TreeError):
+                config.validate(make_node(timeout=bad))
+
+    def test_max_children_default_and_validation(self):
+        node = config.validate(make_node())
+        self.assertEqual(node["max_children"], 8)
+        with self.assertRaises(config.TreeError) as ctx:
+            config.validate(
+                make_node(
+                    children=[make_node(name=f"c{i}", provider="openai")
+                              for i in range(9)]
+                )
+            )
+        self.assertIn("max_children", str(ctx.exception))
+        # explicit raise of the cap works
+        node = config.validate(
+            make_node(
+                max_children=10,
+                children=[make_node(name=f"c{i}", provider="openai")
+                          for i in range(9)],
+            )
+        )
+        self.assertEqual(len(node["children"]), 9)
+
+    def test_prices_override_merges(self):
+        node = config.validate(
+            make_node(prices={"deepseek": {"input": 0.5, "output": 2.0}}))
+        self.assertEqual(node["prices"]["deepseek"], {"input": 0.5, "output": 2.0})
+        # untouched providers keep built-in approximations
+        self.assertEqual(node["prices"]["anthropic"]["input"], 3.0)
+
+    def test_prices_reject_unknown_provider(self):
+        with self.assertRaises(config.TreeError):
+            config.validate(make_node(prices={"llama": {"input": 1, "output": 1}}))
+
+    def test_summarizer_root_and_node(self):
+        node = config.validate(
+            make_node(summarizer={"provider": "deepseek", "model": "deepseek-chat"}))
+        self.assertEqual(node["summarizer"],
+                         {"provider": "deepseek", "model": "deepseek-chat"})
+        self.assertIsNone(config.validate(make_node())["summarizer"])
+        # per-node override
+        node = config.validate(
+            make_node(children=[
+                make_node(name="c", provider="openai",
+                          summarizer={"provider": "xai", "model": "grok-4"})
+            ]))
+        self.assertEqual(node["children"][0]["summarizer"],
+                         {"provider": "xai", "model": "grok-4"})
+
+    def test_summarizer_rejects_bad_provider(self):
+        with self.assertRaises(config.TreeError):
+            config.validate(
+                make_node(summarizer={"provider": "llama", "model": "m"}))
+        with self.assertRaises(config.TreeError):
+            config.validate(make_node(summarizer={"provider": "openai"}))
+
 
 class TestLoadConfig(unittest.TestCase):
     def _write(self, suffix, text):
