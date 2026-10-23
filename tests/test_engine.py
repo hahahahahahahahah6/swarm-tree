@@ -125,10 +125,13 @@ class TestEngine(unittest.TestCase):
         self.assertEqual(len(entered), 2)  # both children entered...
         self.assertEqual(len(exited), 2)  # ...and both finished
 
-    def test_child_failure_recorded(self):
+    def test_child_failure_degraded_not_fatal(self):
         def boom(provider, model, system, user, kind):
             if kind == "leaf":
                 raise RuntimeError("provider exploded")
+            if kind == "summarize":
+                # echo the input: a real model would restate the failure
+                return f"SUMMARIZED: {user[-60:]}", {"input_tokens": 5, "output_tokens": 2}
             return "1) x", {"input_tokens": 5, "output_tokens": 2}
 
         node = config.validate(
@@ -143,9 +146,15 @@ class TestEngine(unittest.TestCase):
             }
         )
         rec = engine.execute_tree(node, "t", boom)
-        self.assertEqual(rec["status"], "error")
-        self.assertIn("c1", rec["error"])
-        self.assertEqual(rec["children"][0]["status"], "error")
+        # the run continues: parent still synthesizes an answer
+        self.assertEqual(rec["status"], "ok")
+        self.assertEqual(rec["response"], "1) x")
+        child = rec["children"][0]
+        self.assertEqual(child["status"], "error")
+        self.assertIn("provider exploded", child["error"])
+        # ...but the failure is visible in the summary the parent sees
+        self.assertEqual(child["summary"]["status"], "failed")
+        self.assertIn("provider exploded", child["summary"]["summary"])
 
     def test_decompose_fallback_when_not_numbered(self):
         def chatty(provider, model, system, user, kind):
@@ -271,6 +280,169 @@ class TestSummaryMode(unittest.TestCase):
             [("deepseek", "m3"), ("gemini", "m4"), ("xai", "m2")],
         )
 
+    def test_failed_child_shows_in_synthesize_prompt(self):
+        # 2a: failed child in summary mode — the parent's synthesize prompt
+        # must show status: failed + a partial summary, and the run continues.
+        def boom(provider, model, system, user, kind):
+            usage = {"input_tokens": 1, "output_tokens": 1}
+            if kind == "leaf" and "bad" in system:
+                raise RuntimeError("bad child blew up")
+            if kind == "decompose":
+                return "1) x\n2) y", usage
+            if kind == "summarize":
+                # echo the input: a real model would restate the failure
+                return f"SUMMARIZED: {user[-60:]}", usage
+            return "fine", usage
+
+        node = config.validate(
+            {
+                "name": "root",
+                "provider": "anthropic",
+                "model": "m",
+                "role": "r",
+                "children": [
+                    {"name": "good", "provider": "openai", "model": "m", "role": "r"},
+                    {"name": "bad", "provider": "openai", "model": "m", "role": "r"},
+                ],
+            }
+        )
+        fn = boom
+        rec = engine.execute_tree(node, "t", fn)
+        self.assertEqual(rec["status"], "ok")  # run continues past the failure
+        synth = [c for c in rec["calls"] if c["kind"] == "synthesize"][0]["user"]
+        self.assertIn("status: failed", synth)  # bad child flagged
+        self.assertIn("bad child blew up", synth)  # partial summary has the error
+        self.assertIn("status: ok", synth)  # good child unaffected
+
+    def test_depth4_chain_summary_mode(self):
+        # 2b: max-depth-4 chain with summary mode — summaries nest correctly.
+        def chain(depth):
+            node = {"name": f"l{depth}", "provider": "openai", "model": "m",
+                    "role": "r"}
+            if depth < 4:
+                node["children"] = [chain(depth + 1)]
+            return node
+
+        fn = ScriptedProvider()
+        rec = engine.execute_tree(config.validate(chain(0)), "deep task", fn)
+        self.assertEqual(rec["status"], "ok")
+        # every internal node summarized its child on the child's provider
+        kinds = [c[2] for c in fn.calls]
+        self.assertEqual(kinds.count("summarize"), 4)  # l3,l2,l1,l0's children
+        # nested summaries: each internal node's child record has one
+        r = rec
+        for expected in ("l1", "l2", "l3", "l4"):
+            child = r["children"][0]
+            self.assertEqual(child["name"], expected)
+            self.assertIsNotNone(child.get("summary"))
+            self.assertEqual(child["summary"]["status"], "ok")
+            r = child
+        # the leaf has no children and no summary of its own to give upward
+        self.assertEqual(r["children"], [])
+
+    def test_summaries_run_in_parallel(self):
+        # sibling summarize calls must overlap: if they ran sequentially,
+        # the barrier would time out and every summary would fall back.
+        barrier = threading.Barrier(3)
+
+        def prov(provider, model, system, user, kind):
+            usage = {"input_tokens": 1, "output_tokens": 1}
+            if kind == "summarize":
+                barrier.wait(timeout=10)  # BrokenBarrierError if sequential
+                return "SUM", usage
+            if kind == "decompose":
+                n = sum(1 for line in user.splitlines() if line.startswith("- "))
+                return "\n".join(f"{i + 1}) x" for i in range(n)), usage
+            return "ok", usage
+
+        node = config.validate(
+            {
+                "name": "root",
+                "provider": "anthropic",
+                "model": "m",
+                "role": "r",
+                "children": [
+                    {"name": f"c{i}", "provider": "openai", "model": "m", "role": "r"}
+                    for i in range(3)
+                ],
+            }
+        )
+        rec = engine.execute_tree(node, "t", prov)
+        self.assertEqual(rec["status"], "ok")
+        for child in rec["children"]:
+            self.assertFalse(child["summary"]["summary_fallback"])
+            self.assertEqual(child["summary"]["summary"], "SUM")
+
+    def test_one_slow_summary_does_not_block_siblings(self):
+        # one child's summarize hanging must not delay the others forever:
+        # siblings finish; the slow one falls back only if IT fails.
+        entered = threading.Event()
+        release = threading.Event()
+
+        def prov(provider, model, system, user, kind):
+            usage = {"input_tokens": 1, "output_tokens": 1}
+            if kind == "summarize" and "'slow'" in system:
+                entered.set()
+                release.wait(timeout=10)
+                return "SLOW-SUM", usage
+            if kind == "decompose":
+                return "1) x\n2) y", usage
+            return "ok", usage
+
+        node = config.validate(
+            {
+                "name": "root",
+                "provider": "anthropic",
+                "model": "m",
+                "role": "r",
+                "children": [
+                    {"name": "fast", "provider": "openai", "model": "m", "role": "r"},
+                    {"name": "slow", "provider": "openai", "model": "m", "role": "r"},
+                ],
+            }
+        )
+        rec = engine.execute_tree(node, "t", prov)
+        self.assertEqual(rec["status"], "ok")
+        by_name = {c["name"]: c for c in rec["children"]}
+        self.assertEqual(by_name["fast"]["summary"]["summary"], "ok")
+        self.assertEqual(by_name["slow"]["summary"]["summary"], "SLOW-SUM")
+        self.assertTrue(entered.is_set())
+
+    def test_safe_summary_isolation_on_unexpected_error(self):
+        # defense in depth: if _make_summary itself blows up (not just the
+        # provider call), the sibling summaries must still land.
+        real_make = engine._make_summary
+
+        def sabotage(fn, node, child_record, max_tokens):
+            if node["name"] == "victim":
+                raise ValueError("unexpected bug")
+            real_make(fn, node, child_record, max_tokens)
+
+        engine._make_summary = sabotage
+        try:
+            fn = ScriptedProvider()
+            node = config.validate(
+                {
+                    "name": "root",
+                    "provider": "anthropic",
+                    "model": "m",
+                    "role": "r",
+                    "children": [
+                        {"name": "victim", "provider": "openai", "model": "m", "role": "r"},
+                        {"name": "okc", "provider": "openai", "model": "m", "role": "r"},
+                    ],
+                }
+            )
+            rec = engine.execute_tree(node, "t", fn)
+            self.assertEqual(rec["status"], "ok")
+            by_name = {c["name"]: c for c in rec["children"]}
+            self.assertEqual(by_name["victim"]["summary"]["status"], "failed")
+            self.assertTrue(by_name["victim"]["summary"]["summary_fallback"])
+            self.assertEqual(by_name["okc"]["summary"]["summary"], "SUMMARY")
+            self.assertFalse(by_name["okc"]["summary"]["summary_fallback"])
+        finally:
+            engine._make_summary = real_make
+
     def test_synthesize_sees_summaries_not_raw_outputs(self):
         fn = ScriptedProvider()
         rec = engine.execute_tree(tree(), "big task", fn)
@@ -280,6 +452,13 @@ class TestSummaryMode(unittest.TestCase):
         self.assertIn("SUMMARY", user)  # compact summaries present
         self.assertIn("transcript.json", user)  # pointers present
         self.assertNotIn("LEAF:", user)  # raw child outputs absent
+
+    def test_synthesize_prompt_cites_and_flags(self):
+        # item 3: the synthesize prompt must instruct citation and explicit
+        # flagging of failed/incomplete/contradictory children.
+        prompt = engine._synthesize_prompt("task", [], True)
+        self.assertIn("Cite which sub-agent each key point comes from", prompt)
+        self.assertIn("say so explicitly instead of guessing", prompt)
 
     def test_summarize_failure_falls_back_to_truncation(self):
         long_answer = "x" * 800
