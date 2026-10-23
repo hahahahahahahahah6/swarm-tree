@@ -72,6 +72,18 @@ class TestValidate(unittest.TestCase):
         with self.assertRaises(config.TreeError):
             config.validate(node)
 
+    def test_summary_mode_default_true(self):
+        node = config.validate(make_node())
+        self.assertTrue(node["summary_mode"])
+
+    def test_summary_mode_false_accepted(self):
+        node = config.validate(make_node(summary_mode=False))
+        self.assertFalse(node["summary_mode"])
+
+    def test_summary_mode_must_be_bool(self):
+        with self.assertRaises(config.TreeError):
+            config.validate(make_node(summary_mode="yes"))
+
     def test_providers_used(self):
         node = config.validate(
             make_node(
