@@ -58,6 +58,9 @@ def _parser() -> argparse.ArgumentParser:
                      help="Where to write the JSON transcript (default: transcript.json)")
     run.add_argument("--max-tokens", type=int, default=1024,
                      help="Max tokens per provider call (default: 1024)")
+    run.add_argument("--full-context", action="store_true",
+                     help="Disable summary mode: pass full child outputs to the "
+                          "synthesize step (the pre-v0.2 behavior)")
 
     sub.add_parser("validate", help="Validate a tree config without running it.").add_argument(
         "--tree", required=True, help="Path to tree.yaml / tree.json"
@@ -78,7 +81,8 @@ def _cmd_validate(args) -> int:
         print(f"invalid: {exc}", file=sys.stderr)
         return 2
     leaf_count = _count_leaves(node)
-    print(f"valid: {leaf_count} leaves, providers: {', '.join(config.providers_used(node))}")
+    sm = "on" if node.get("summary_mode", True) else "off"
+    print(f"valid: {leaf_count} leaves, providers: {', '.join(config.providers_used(node))}, summary_mode: {sm}")
     return 0
 
 
@@ -116,9 +120,12 @@ def _cmd_run(args) -> int:
 
     print(f"swarm-tree v{__version__} — task: {args.task!r}")
     print(f"mode: {'dry-run (mock providers, $0.00)' if args.dry_run else 'live'}")
+    summary_mode = node.get("summary_mode", True) and not args.full_context
+    print(f"summary mode: {'on' if summary_mode else 'off (full context)'}")
     print()
 
-    record = engine.execute_tree(node, args.task, provider_fn, args.max_tokens)
+    record = engine.execute_tree(node, args.task, provider_fn, args.max_tokens,
+                                 summary_mode=summary_mode)
 
     print(render.render_tree(record))
     print()
