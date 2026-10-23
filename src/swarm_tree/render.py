@@ -10,9 +10,15 @@ def _fmt_tokens(n: int) -> str:
     return f"{n / 1000:.1f}k" if n >= 1000 else str(n)
 
 
+def _fmt_cost(c: float) -> str:
+    """Compact USD estimate: 0.0042 -> '$0.0042', 1.5 -> '$1.50'."""
+    return f"${c:.2f}" if c >= 0.01 else f"${c:.4f}"
+
+
 def _token_str(record: dict) -> str:
     toks = record.get("tokens") or {"input": 0, "output": 0}
-    return f"{_fmt_tokens(toks['input'])}/{_fmt_tokens(toks['output'])}"
+    return (f"{_fmt_tokens(toks['input'])}/{_fmt_tokens(toks['output'])} "
+            f"~{_fmt_cost(toks.get('cost_usd', 0))}")
 
 
 def _node_line(record: dict) -> str:
