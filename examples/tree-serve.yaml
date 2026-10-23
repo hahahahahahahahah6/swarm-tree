@@ -15,9 +15,21 @@ children:
     role: You watch shop metrics and flag anomalies with numbers.
     schedule: 30m
     task: Check today's orders, refunds and GMV; flag anything unusual.
+    # v0.4 governance trio (all optional, serve mode only):
+    # trigger: shell command run before each tick; when its stdout hash is
+    #   unchanged since the last tick, the LLM call is skipped ($0.00).
+    #   A failing check fails open (the node still runs).
+    trigger: "curl -s https://example.com/api/orders | md5sum"
+    # budget_usd: cumulative USD cap for this node; ticks skip the node once
+    #   its lifetime spend (tracked in state.json) reaches the cap.
+    budget_usd: 5.0
   - name: research-agent
     provider: gemini
     model: gemini-2.5-flash
     role: You track the market each morning and keep it short.
     schedule: "08:05"
     task: Summarize overnight market moves relevant to a tech watchlist.
+    # Nodes can also emit owner decisions: any output line starting with
+    # "DECISION:" is harvested into the owner queue (`swarm-tree queue`).
+    # Example role line: "End your briefing with DECISION: <one line> for
+    # anything that needs the human's approval."
