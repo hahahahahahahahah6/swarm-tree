@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import warnings
 
 from . import providers
@@ -12,10 +13,43 @@ MAX_DEPTH = 4  # root node is depth 0
 DEFAULT_MAX_CONCURRENCY = 8
 DEFAULT_MAX_CHILDREN = 8
 DEFAULT_TIMEOUT = 120
+DEFAULT_SERVE_DIR = "serve-data"
 
 _NODE_KEYS = {"name", "provider", "model", "role", "children", "summarizer",
-              "max_children"}
-_ROOT_KEYS = _NODE_KEYS | {"summary_mode", "max_concurrency", "timeout", "prices"}
+              "max_children", "schedule", "task", "enabled"}
+_ROOT_KEYS = _NODE_KEYS | {"summary_mode", "max_concurrency", "timeout", "prices",
+                          "serve_dir", "rollup"}
+
+# Serve-mode schedule specs: an interval like "30s"/"5m"/"2h"/"1d", or a daily
+# wall-clock time like "08:05" (24h, local time).
+_SCHEDULE_INTERVAL_RE = re.compile(r"^(\d+)([smhd])$")
+_SCHEDULE_DAILY_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
+_INTERVAL_MULTIPLIERS = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+
+
+def parse_schedule(spec: str):
+    """Parse a serve-mode `schedule` spec.
+
+    Returns ("interval", seconds) for "30s"/"5m"/"2h"/"1d", or
+    ("daily", (hour, minute)) for "HH:MM". Raises TreeError on anything else.
+    """
+    if not isinstance(spec, str):
+        raise TreeError(f"serve: 'schedule' must be a string, got {spec!r}")
+    spec = spec.strip()
+    m = _SCHEDULE_INTERVAL_RE.match(spec)
+    if m:
+        amount = int(m.group(1))
+        if amount < 1:
+            raise TreeError(
+                f"serve: 'schedule' interval must be >= 1, got {spec!r}")
+        return ("interval", amount * _INTERVAL_MULTIPLIERS[m.group(2)])
+    m = _SCHEDULE_DAILY_RE.match(spec)
+    if m:
+        return ("daily", (int(m.group(1)), int(m.group(2))))
+    raise TreeError(
+        f"serve: invalid 'schedule' {spec!r} — expected an interval like "
+        f"'30s'/'5m'/'2h'/'1d' or a daily time like '08:05'"
+    )
 
 
 class TreeError(ValueError):
@@ -163,6 +197,11 @@ def validate(data: dict) -> dict:
     node["timeout"] = _require_pos_number(data, "timeout", DEFAULT_TIMEOUT, "root")
     node["prices"] = _validate_prices(data.get("prices"), "root")
     node["summarizer"] = _validate_summarizer(data.get("summarizer"), "root")
+    serve_dir = data.get("serve_dir", DEFAULT_SERVE_DIR)
+    if not isinstance(serve_dir, str) or not serve_dir.strip():
+        raise TreeError("root: 'serve_dir' must be a non-empty string")
+    node["serve_dir"] = serve_dir.strip()
+    node["rollup"] = _require_bool(data, "rollup", True, "root")
     return node
 
 
@@ -198,6 +237,19 @@ def _validate_node(data, depth: int, path: str, seen: set, names: set) -> dict:
     max_children = _require_pos_int(
         data, "max_children", DEFAULT_MAX_CHILDREN, path)
 
+    # Serve-mode knobs (all optional). A node with a schedule runs on its own
+    # cadence under `swarm-tree serve`; nodes without one only aggregate.
+    schedule = data.get("schedule")
+    if schedule is not None:
+        parse_schedule(schedule)  # validates; the raw string is kept
+        schedule = schedule.strip()
+    serve_task = data.get("task")
+    if serve_task is not None:
+        if not isinstance(serve_task, str) or not serve_task.strip():
+            raise TreeError(f"{path}: 'task' must be a non-empty string")
+        serve_task = serve_task.strip()
+    enabled = _require_bool(data, "enabled", True, path)
+
     children = data.get("children", [])
     if children is None:
         children = []
@@ -216,6 +268,9 @@ def _validate_node(data, depth: int, path: str, seen: set, names: set) -> dict:
         "depth": depth,
         "max_children": max_children,
         "summarizer": _validate_summarizer(data.get("summarizer"), path),
+        "schedule": schedule,
+        "task": serve_task,
+        "enabled": enabled,
         "children": [
             _validate_node(child, depth + 1, f"{path}.children[{i}]", seen, names)
             for i, child in enumerate(children)
