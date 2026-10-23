@@ -16,7 +16,8 @@ DEFAULT_TIMEOUT = 120
 DEFAULT_SERVE_DIR = "serve-data"
 
 _NODE_KEYS = {"name", "provider", "model", "role", "children", "summarizer",
-              "max_children", "schedule", "task", "enabled"}
+              "max_children", "schedule", "task", "enabled", "trigger",
+              "budget_usd"}
 _ROOT_KEYS = _NODE_KEYS | {"summary_mode", "max_concurrency", "timeout", "prices",
                           "serve_dir", "rollup"}
 
@@ -250,6 +251,25 @@ def _validate_node(data, depth: int, path: str, seen: set, names: set) -> dict:
         serve_task = serve_task.strip()
     enabled = _require_bool(data, "enabled", True, path)
 
+    # v0.4 governance trio (serve mode only; ignored elsewhere).
+    # trigger: shell command run before a scheduled tick; when its stdout
+    # hash is unchanged since the last tick, the LLM call is skipped.
+    trigger = data.get("trigger")
+    if trigger is not None:
+        if not isinstance(trigger, str) or not trigger.strip():
+            raise TreeError(f"{path}: 'trigger' must be a non-empty string")
+        trigger = trigger.strip()
+    # budget_usd: cumulative USD cap per node; ticks skip the node once its
+    # lifetime spend (state.json "_spend") reaches the cap.
+    budget_usd = data.get("budget_usd")
+    if budget_usd is not None:
+        if isinstance(budget_usd, bool) or not isinstance(
+                budget_usd, (int, float)) or budget_usd <= 0:
+            raise TreeError(
+                f"{path}: 'budget_usd' must be a positive number, "
+                f"got {budget_usd!r}")
+        budget_usd = float(budget_usd)
+
     children = data.get("children", [])
     if children is None:
         children = []
@@ -271,6 +291,8 @@ def _validate_node(data, depth: int, path: str, seen: set, names: set) -> dict:
         "schedule": schedule,
         "task": serve_task,
         "enabled": enabled,
+        "trigger": trigger,
+        "budget_usd": budget_usd,
         "children": [
             _validate_node(child, depth + 1, f"{path}.children[{i}]", seen, names)
             for i, child in enumerate(children)
