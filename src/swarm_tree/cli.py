@@ -124,7 +124,16 @@ def _parser() -> argparse.ArgumentParser:
                     help="Override the config's serve_dir")
     qu.add_argument("--clear", action="store_true",
                     help="Empty the queue (after handling the items)")
+    web = sub.add_parser("web", help="Run the local web application.")
+    web.add_argument("--host", default="127.0.0.1")
+    web.add_argument("--port", type=int, default=8080)
     return parser
+
+
+def _cmd_web(args) -> int:
+    from .web import app
+    app.serve_forever(args.host, args.port)
+    return 0
 
 
 def _cmd_example() -> int:
@@ -352,6 +361,8 @@ def _cmd_run(args) -> int:
 
 def main(argv=None) -> int:
     args = _parser().parse_args(argv)
+    if args.command == "web":
+        return _cmd_web(args)
     if args.command == "run":
         return _cmd_run(args)
     if args.command == "validate":
