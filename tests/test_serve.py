@@ -343,5 +343,245 @@ class TestServeCli(unittest.TestCase):
             self.assertEqual(rc, 2)
 
 
+class TestTriggerConfig(unittest.TestCase):
+    def test_trigger_accepted(self):
+        node = _tree(nodes=[{"name": "a", "schedule": "5m",
+                             "trigger": "echo hello"}])
+        self.assertEqual(node["children"][0]["trigger"], "echo hello")
+
+    def test_trigger_defaults_none(self):
+        node = _tree(nodes=[{"name": "a", "schedule": "5m"}])
+        self.assertIsNone(node["children"][0]["trigger"])
+
+    def test_trigger_empty_rejected(self):
+        with self.assertRaises(config.TreeError):
+            _tree(nodes=[{"name": "a", "schedule": "5m", "trigger": "   "}])
+
+    def test_trigger_nonstring_rejected(self):
+        with self.assertRaises(config.TreeError):
+            _tree(nodes=[{"name": "a", "schedule": "5m", "trigger": 42}])
+
+
+class TestTriggerTick(unittest.TestCase):
+    def _tick(self, tmp, trigger, now):
+        node = _tree(nodes=[{"name": "shop", "schedule": "5m",
+                             "task": "check", "trigger": trigger}])
+        serve_dir = os.path.join(tmp, "data")
+        calls = []
+        def fake(provider, model, system, user, kind, max_tokens=1024):
+            calls.append(kind)
+            return ("all good", {"input_tokens": 10, "output_tokens": 20},
+                    "stop")
+        results = serve.run_tick(
+            node, fake, serve_dir=serve_dir, dry_run=True,
+            version="0.4.0-test", now=now)
+        return results, serve_dir, calls
+
+    def test_first_tick_runs_and_stores_hash(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            now = time.time()
+            results, serve_dir, calls = self._tick(tmp, "echo hello", now)
+            self.assertEqual(results[0]["status"], "ok")
+            self.assertEqual(len(calls), 1)
+            state = serve.load_state(serve_dir)
+            self.assertIn("trigger_hash", state["shop"])
+            self.assertEqual(state["shop"]["trigger"], "ran")
+
+    def test_skip_on_unchanged_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            now = time.time()
+            self._tick(tmp, "echo hello", now)
+            # second tick after the interval, same trigger output
+            results, serve_dir, calls = self._tick(tmp, "echo hello",
+                                                  now + 600)
+            self.assertEqual(len(results), 1)
+            self.assertEqual(results[0]["status"], "skipped")
+            self.assertEqual(results[0]["trigger"], "skipped")
+            self.assertEqual(calls, [])  # no LLM call made
+            state = serve.load_state(serve_dir)
+            self.assertEqual(state["shop"]["last_status"], "skipped")
+            # cadence continues: next run is one interval after the tick
+            self.assertGreater(state["shop"]["next_run"], time.time())
+
+    def test_runs_when_output_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            flag = os.path.join(tmp, "flag.txt")
+            with open(flag, "w") as fh:
+                fh.write("v1")
+            now = time.time()
+            self._tick(tmp, f"cat {flag}", now)
+            with open(flag, "w") as fh:
+                fh.write("v2")
+            results, _, calls = self._tick(tmp, f"cat {flag}", now + 600)
+            self.assertEqual(results[0]["status"], "ok")
+            self.assertEqual(len(calls), 1)  # output changed -> ran
+
+    def test_fail_open_on_bad_command(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            now = time.time()
+            results, _, calls = self._tick(tmp, "exit 3", now)
+            self.assertEqual(results[0]["status"], "ok")
+            self.assertEqual(len(calls), 1)
+            self.assertEqual(results[0]["trigger"], "check-failed")
+
+    def test_fail_open_on_missing_command(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            now = time.time()
+            results, _, calls = self._tick(
+                tmp, "definitely-not-a-real-command-xyz", now)
+            self.assertEqual(results[0]["status"], "ok")
+            self.assertEqual(len(calls), 1)
+
+    def test_status_shows_trigger(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            now = time.time()
+            node = _tree(nodes=[{"name": "shop", "schedule": "5m",
+                                 "trigger": "echo hi"}])
+            serve_dir = os.path.join(tmp, "data")
+            serve.run_tick(node, engine.dry_run_provider, serve_dir=serve_dir,
+                           dry_run=True, version="0.4.0-test", now=now)
+            out = serve.format_status(node, serve_dir, now=now)
+            self.assertIn("trigger", out)
+            self.assertIn("ran", out)
+
+
+class TestOwnerQueue(unittest.TestCase):
+    def _fake(self, text):
+        def fake(provider, model, system, user, kind, max_tokens=1024):
+            return (text, {"input_tokens": 10, "output_tokens": 20}, "stop")
+        return fake
+
+    def test_harvest_decisions(self):
+        self.assertEqual(
+            serve.harvest_decisions("line1\nDECISION: approve X\n  \n"
+                                    "DECISION:  ship it \nnope"),
+            ["approve X", "ship it"])
+        self.assertEqual(serve.harvest_decisions("nothing here"), [])
+        self.assertEqual(serve.harvest_decisions(None), [])
+
+    def test_queue_add_dedupe(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            node = _tree(nodes=[{"name": "shop", "schedule": "5m"}])
+            serve_dir = os.path.join(tmp, "data")
+            fake = self._fake("daily fine\nDECISION: approve the deploy")
+            now = time.time()
+            serve.run_tick(node, fake, serve_dir=serve_dir, dry_run=True,
+                           version="0.4.0-test", now=now)
+            state = serve.load_state(serve_dir)
+            queue = serve.get_queue(state)
+            self.assertEqual(len(queue), 1)
+            self.assertEqual(queue[0]["node"], "shop")
+            self.assertEqual(queue[0]["text"], "approve the deploy")
+            self.assertIn("added_at", queue[0])
+            # second tick: same decision must not duplicate
+            serve.run_tick(node, fake, serve_dir=serve_dir, dry_run=True,
+                           version="0.4.0-test", now=now + 600)
+            state = serve.load_state(serve_dir)
+            self.assertEqual(len(serve.get_queue(state)), 1)
+
+    def test_rollup_appends_queue_section(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            node = _tree(nodes=[{"name": "shop", "schedule": "5m"}])
+            serve_dir = os.path.join(tmp, "data")
+            fake = self._fake("DECISION: buy more GPUs")
+            results = serve.run_tick(
+                node, fake, serve_dir=serve_dir, dry_run=True,
+                version="0.4.0-test", now=time.time())
+            path = serve.write_rollup(
+                node, results, engine.dry_run_provider, serve_dir=serve_dir,
+                dry_run=True, version="0.4.0-test")
+            with open(path) as fh:
+                body = fh.read()
+            self.assertIn("## 待你拍板 (Owner Action Queue)", body)
+            self.assertIn("- [ ] shop: buy more GPUs", body)
+
+    def test_queue_cli_list_and_clear(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = {"name": "ceo", "provider": "anthropic", "model": "m",
+                    "role": "ceo", "children": [
+                        {"name": "a", "provider": "deepseek", "model": "m",
+                         "role": "r", "schedule": "5m", "task": "check"}]}
+            path = os.path.join(tmp, "tree.json")
+            with open(path, "w") as fh:
+                json.dump(data, fh)
+            sdir = os.path.join(tmp, "d")
+            node = config.load_config(path)
+            fake = self._fake("DECISION: decide this")
+            serve.run_tick(node, fake, serve_dir=sdir, dry_run=True,
+                           version="0.4.0-test", now=time.time())
+            self.assertEqual(
+                cli.main(["queue", "--tree", path, "--serve-dir", sdir]), 0)
+            self.assertEqual(
+                cli.main(["queue", "--tree", path, "--serve-dir", sdir,
+                          "--clear"]), 0)
+            state = serve.load_state(sdir)
+            self.assertEqual(serve.get_queue(state), [])
+
+
+class TestBudget(unittest.TestCase):
+    def test_budget_config(self):
+        node = _tree(nodes=[{"name": "a", "schedule": "5m",
+                             "budget_usd": 0.5}])
+        self.assertEqual(node["children"][0]["budget_usd"], 0.5)
+        node = _tree(nodes=[{"name": "a", "schedule": "5m"}])
+        self.assertIsNone(node["children"][0]["budget_usd"])
+
+    def test_budget_rejected(self):
+        for bad in (0, -1.5, "lots", True):
+            with self.assertRaises(config.TreeError, msg=repr(bad)):
+                _tree(nodes=[{"name": "a", "schedule": "5m",
+                              "budget_usd": bad}])
+
+    def test_spend_accumulates_and_trips(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            node = _tree(nodes=[{"name": "shop", "schedule": "5m",
+                                 "task": "check", "budget_usd": 1e-9}])
+            serve_dir = os.path.join(tmp, "data")
+            now = time.time()
+            first = serve.run_tick(
+                node, engine.dry_run_provider, serve_dir=serve_dir,
+                dry_run=True, version="0.4.0-test", now=now)
+            self.assertEqual(first[0]["status"], "ok")
+            state = serve.load_state(serve_dir)
+            self.assertGreater(state["_spend"]["shop"], 0)
+            # second tick: cumulative spend already >= budget -> skipped
+            second = serve.run_tick(
+                node, engine.dry_run_provider, serve_dir=serve_dir,
+                dry_run=True, version="0.4.0-test", now=now + 600)
+            self.assertEqual(len(second), 1)
+            self.assertEqual(second[0]["status"], "budget-exceeded")
+            self.assertIsNone(second[0]["transcript"])
+            state = serve.load_state(serve_dir)
+            self.assertEqual(state["shop"]["last_status"], "budget-exceeded")
+
+    def test_no_budget_runs_freely(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            node = _tree(nodes=[{"name": "shop", "schedule": "5m",
+                                 "task": "check"}])
+            serve_dir = os.path.join(tmp, "data")
+            now = time.time()
+            serve.run_tick(node, engine.dry_run_provider, serve_dir=serve_dir,
+                           dry_run=True, version="0.4.0-test", now=now)
+            second = serve.run_tick(
+                node, engine.dry_run_provider, serve_dir=serve_dir,
+                dry_run=True, version="0.4.0-test", now=now + 600)
+            self.assertEqual(second[0]["status"], "ok")
+
+    def test_status_shows_spend_and_flag(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            node = _tree(nodes=[{"name": "shop", "schedule": "5m",
+                                 "task": "check", "budget_usd": 1e-9}])
+            serve_dir = os.path.join(tmp, "data")
+            now = time.time()
+            serve.run_tick(node, engine.dry_run_provider, serve_dir=serve_dir,
+                           dry_run=True, version="0.4.0-test", now=now)
+            serve.run_tick(node, engine.dry_run_provider, serve_dir=serve_dir,
+                           dry_run=True, version="0.4.0-test", now=now + 600)
+            out = serve.format_status(node, serve_dir, now=now + 600)
+            self.assertIn("spend", out)
+            self.assertIn("BUDGET-EXCEEDED", out)
+            self.assertIn("1e-09", out)
+
+
 if __name__ == "__main__":
     unittest.main()
