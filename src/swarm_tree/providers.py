@@ -230,8 +230,12 @@ def call(
     max_tokens: int = 1024,
     timeout: int = 120,
     max_retries: int = 3,
+    *,
+    key=None,
 ) -> tuple:
     """Make one chat call to a provider.
+
+    An explicit keyword-only key overrides environment key lookup.
 
     Returns (assistant_text, usage, finish_reason) where usage is
     {"input_tokens": int, "output_tokens": int} and finish_reason is the
@@ -242,7 +246,7 @@ def call(
     Retry-After header. Everything surfaces as ProviderError — never a raw
     HTTPError, JSONDecodeError, or TimeoutError.
     """
-    key = api_key_for(provider)
+    key = api_key_for(provider) if key is None else key
     url, headers, payload = _build(provider, model, system, user, key, max_tokens)
     request = urllib.request.Request(
         url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST"
