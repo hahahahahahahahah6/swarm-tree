@@ -171,7 +171,7 @@ details[open]>summary::before{transform:rotate(90deg)}
 
 <script>
 var SLANG=(function(){var m=document.cookie.match(/(?:^|; )lang=(en|zh)/);if(m)return m[1];return (navigator.language||'en').slice(0,2)==='zh'?'zh':'en';})();
-var STR={en:{agent_node:'Agent node',root_node:'Root node',example_loaded:'Example loaded',new_tree_created:'New tree created',paste_first:'Paste a YAML or JSON tree first.',role_label:'Role (system prompt)',tree_imported:st('tree_imported'),confirm_replace:'Replace the current tree with the example?'},
+var STR={en:{agent_node:'Agent node',root_node:'Root node',example_loaded:'Example loaded',new_tree_created:'New tree created',paste_first:'Paste a YAML or JSON tree first.',role_label:'Role (system prompt)',tree_imported:'Tree imported',confirm_replace:'Replace the current tree with the example?'},
 zh:{agent_node:'智能体节点',root_node:'根节点',example_loaded:'示例已载入',new_tree_created:'已新建树',paste_first:'请先粘贴 YAML 或 JSON 树。',role_label:'角色（系统提示词）',tree_imported:'树已导入',confirm_replace:'用示例替换当前这棵树？'}};
 function st(k){return (STR[SLANG]&&STR[SLANG][k])||STR.en[k]||k;}
 function applyLang(){var els=document.querySelectorAll('[data-en]');for(var i=0;i<els.length;i++){var el=els[i];el.innerHTML=SLANG==='zh'?el.getAttribute('data-zh'):el.getAttribute('data-en');}var ts=document.querySelectorAll('[data-ten]');for(var j=0;j<ts.length;j++){var te=ts[j];te.setAttribute('title',SLANG==='zh'?te.getAttribute('data-tzh'):te.getAttribute('data-ten'));}}
