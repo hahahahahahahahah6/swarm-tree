@@ -68,6 +68,130 @@ def require_login(fn):
     return wrapped
 
 
+LANDING_HTML = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Swarm Tree — grow an agent team, chat with it, ship images</title>
+<style>
+:root{--bg:#0a0d12;--panel:#11151d;--line:#1f2632;--txt:#e8ecf3;--mut:#9aa4b5;--acc:#4ade80;--acc2:#22d3ee}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--txt);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;line-height:1.6}
+a{color:inherit}
+.wrap{max-width:1080px;margin:0 auto;padding:0 22px}
+nav{position:sticky;top:0;z-index:10;background:rgba(10,13,18,.85);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+nav .wrap{display:flex;align-items:center;justify-content:space-between;height:60px}
+.brand{font-weight:800;font-size:19px;letter-spacing:.3px;text-decoration:none}
+.brand span{color:var(--acc)}
+.btn{display:inline-block;padding:10px 22px;border-radius:10px;font-weight:700;text-decoration:none;font-size:15px;border:1px solid var(--line)}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#06130b}
+.btn.ghost{color:var(--txt)}
+.btn.pri:hover{filter:brightness(1.08)}
+.navlinks{display:flex;gap:10px;align-items:center}
+.hero{padding:84px 0 60px;text-align:center}
+.kicker{display:inline-block;font-size:13px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--acc);border:1px solid #1d3a2a;background:#0e1a13;padding:6px 14px;border-radius:999px;margin-bottom:22px}
+h1{font-size:clamp(34px,6vw,58px);line-height:1.12;font-weight:800;letter-spacing:-1px;margin-bottom:18px}
+h1 .g{background:linear-gradient(90deg,var(--acc),var(--acc2));-webkit-background-clip:text;background-clip:text;color:transparent}
+.sub{color:var(--mut);font-size:clamp(16px,2.4vw,19px);max-width:640px;margin:0 auto 30px}
+.cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-bottom:54px}
+.treebox{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:26px 12px;max-width:720px;margin:0 auto;overflow-x:auto}
+.feats{padding:30px 0 10px}
+.feats h2,.steps h2{text-align:center;font-size:clamp(24px,4vw,32px);margin-bottom:8px;letter-spacing:-.5px}
+.feats p.lead{text-align:center;color:var(--mut);margin-bottom:30px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:24px}
+.card .ic{font-size:26px;margin-bottom:10px}
+.card h3{font-size:17px;margin-bottom:8px}
+.card p{color:var(--mut);font-size:14.5px}
+.steps{padding:56px 0}
+.sgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;counter-reset:st}
+.step{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:24px;position:relative}
+.step b.n{display:inline-flex;width:30px;height:30px;border-radius:50%;background:#12331f;color:var(--acc);align-items:center;justify-content:center;font-size:15px;margin-bottom:12px}
+.step h3{font-size:16px;margin-bottom:8px}
+.step p{color:var(--mut);font-size:14.5px}
+.step code{background:#0a0d12;border:1px solid var(--line);border-radius:6px;padding:1px 7px;font-size:13px;color:var(--acc2)}
+.cta2{text-align:center;padding:40px 0 70px}
+.cta2 h2{font-size:clamp(24px,4vw,34px);margin-bottom:12px}
+.cta2 p{color:var(--mut);margin-bottom:24px}
+footer{border-top:1px solid var(--line);padding:26px 0;color:var(--mut);font-size:14px}
+footer .wrap{display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px}
+footer a{color:var(--mut);text-decoration:none;margin-left:18px}
+footer a:hover{color:var(--txt)}
+@media(max-width:560px){.hero{padding:56px 0 40px}.navlinks .btn.ghost{display:none}}
+</style>
+</head>
+<body>
+<nav><div class="wrap">
+<a class="brand" href="/">🌲 <span>Swarm</span> Tree</a>
+<div class="navlinks"><a class="btn ghost" href="/login">Log in</a><a class="btn pri" href="/signup">Get started</a></div>
+</div></nav>
+<div class="wrap">
+<section class="hero">
+<div class="kicker">v0.5 &mdash; now with a web studio</div>
+<h1>Grow an agent tree.<br><span class="g">Chat with it. Ship images.</span></h1>
+<p class="sub">Swarm Tree turns a YAML tree of LLM agents into a living team: design it visually, talk to it in the browser, and generate images &mdash; all with your own provider keys.</p>
+<div class="cta">
+<a class="btn pri" href="/signup">Start free</a>
+<a class="btn ghost" href="https://github.com/hahahahahahahahah6/swarm-tree">⭐ GitHub</a>
+</div>
+<div class="treebox">
+<svg viewBox="0 0 640 300" width="100%" style="max-width:640px" role="img" aria-label="agent tree diagram">
+<defs><marker id="ar" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#3a4456"/></marker></defs>
+<g font-family="inherit" font-size="13" text-anchor="middle">
+<line x1="320" y1="46" x2="180" y2="120" stroke="#3a4456" stroke-width="2" marker-end="url(#ar)"/>
+<line x1="320" y1="46" x2="460" y2="120" stroke="#3a4456" stroke-width="2" marker-end="url(#ar)"/>
+<line x1="180" y1="152" x2="110" y2="226" stroke="#3a4456" stroke-width="2" marker-end="url(#ar)"/>
+<line x1="180" y1="152" x2="250" y2="226" stroke="#3a4456" stroke-width="2" marker-end="url(#ar)"/>
+<line x1="460" y1="152" x2="460" y2="226" stroke="#3a4456" stroke-width="2" marker-end="url(#ar)"/>
+<rect x="248" y="14" width="144" height="34" rx="10" fill="#12331f" stroke="#4ade80"/>
+<text x="320" y="36" fill="#4ade80" font-weight="700">🎯 coordinator</text>
+<rect x="108" y="120" width="144" height="34" rx="10" fill="#11151d" stroke="#3a4456"/>
+<text x="180" y="142" fill="#e8ecf3">🔍 researcher</text>
+<rect x="388" y="120" width="144" height="34" rx="10" fill="#11151d" stroke="#3a4456"/>
+<text x="460" y="142" fill="#e8ecf3">🎨 designer</text>
+<rect x="38" y="226" width="144" height="34" rx="10" fill="#11151d" stroke="#3a4456"/>
+<text x="110" y="248" fill="#9aa4b5">📄 summarizer</text>
+<rect x="178" y="226" width="144" height="34" rx="10" fill="#11151d" stroke="#3a4456"/>
+<text x="250" y="248" fill="#9aa4b5">✅ fact-checker</text>
+<rect x="388" y="226" width="144" height="34" rx="10" fill="#0e2a33" stroke="#22d3ee"/>
+<text x="460" y="248" fill="#22d3ee">🖼️ image-gen</text>
+</g></svg>
+</div>
+</section>
+<section class="feats">
+<h2>One tree, every superpower</h2>
+<p class="lead">Design once in the visual studio. Run anywhere &mdash; CLI or web.</p>
+<div class="grid">
+<div class="card"><div class="ic">🌳</div><h3>Visual tree editor</h3><p>Drag nodes, set prompts, providers and budgets per node. Export validated YAML in one click.</p></div>
+<div class="card"><div class="ic">💬</div><h3>Streaming chat</h3><p>Talk to any tree in the browser. Watch each agent work live, keep full run history.</p></div>
+<div class="card"><div class="ic">🖼️</div><h3>Image generation</h3><p>Generate images from chat or a dedicated studio. Latest OpenAI &amp; Gemini image models.</p></div>
+<div class="card"><div class="ic">⏰</div><h3>Schedules &amp; triggers</h3><p>Nodes run on cron, on file changes, or on shell triggers. Skip the LLM call when nothing changed.</p></div>
+</div>
+</section>
+<section class="steps">
+<h2>Live in three steps</h2>
+<div class="sgrid" style="margin-top:26px">
+<div class="step"><b class="n">1</b><h3>Create an account</h3><p>Thirty seconds. No credit card &mdash; you bring your own provider keys.</p></div>
+<div class="step"><b class="n">2</b><h3>Design your tree</h3><p>Use the visual studio or paste YAML. <code>swarm-tree validate</code> checks it instantly.</p></div>
+<div class="step"><b class="n">3</b><h3>Chat &amp; create</h3><p>Talk to your team, generate images, set schedules. Watch the tree work.</p></div>
+</div>
+</section>
+<section class="cta2">
+<h2>Your keys, your agents, your images.</h2>
+<p>Bring-your-own-key: keys are stored encrypted-ish (0600 SQLite), never logged, never echoed back.</p>
+<a class="btn pri" href="/signup" style="font-size:17px;padding:13px 34px">Get started — it's free</a>
+</section>
+</div>
+<footer><div class="wrap">
+<span>🌲 Swarm Tree v0.5.0 — stdlib-only, MIT</span>
+<span><a href="https://github.com/hahahahahahahahah6/swarm-tree">GitHub</a><a href="https://dev.to/haoli">Blog</a><a href="/login">Log in</a></span>
+</div></footer>
+</body>
+</html>
+"""
+
+
 class WebApp:
     """Application state shared by request threads and background workers."""
 
@@ -237,7 +361,7 @@ class Handler(BaseHTTPRequestHandler):
     def home(self):
         if self.user:
             return self.redirect('/dashboard')
-        self.page('Swarm Tree', '<p>Create agent trees, chat, and generate images with your own provider keys.</p>')
+        self.respond(LANDING_HTML)
 
     def auth_form(self, error='', status=200):
         action = self.route_path
