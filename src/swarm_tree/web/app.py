@@ -644,6 +644,7 @@ class Handler(BaseHTTPRequestHandler):
                 ('GET', '/images'): self.image_page, ('POST', '/images'): self.generate_image,
                 ('GET', '/settings/keys'): self.keys, ('POST', '/settings/keys'): self.keys,
                 ('GET', '/api/keys'): self.api_keys, ('POST', '/api/keys'): self.api_keys,
+                ('POST', '/api/chat-node'): self.api_chat_node,
             }
             self.route_path = path
             if (method, path) in routes:
@@ -829,6 +830,67 @@ class Handler(BaseHTTPRequestHandler):
             '<p class="hint" id="web-keys-msg" style="margin:2px 0 0"></p></div>'
         )
         studio = studio.replace('</aside>', keys_panel + '</aside>', 1)
+        # Single-node chat panel, placed right under the node inspector so it
+        # always follows the selected node. History is page-only, not saved.
+        zh = lang == 'zh'
+        chat_title = '和这个节点聊天' if zh else 'Chat with this node'
+        chat_hint = ('只聊当前选中的节点，不跑子节点、不跑整棵树；记录只留在这页，刷新就没了。'
+                     if zh else 'Chat with only the selected node: no children, no whole-tree run. History lives on this page only.')
+        chat_panel = (
+            '<div class="sec" id="web-chat">'
+            f'<div class="sh"><span>{escape(chat_title)}</span><span class="pill" id="web-chat-node"></span></div>'
+            f'<p class="hint" style="margin:-2px 0 12px">{escape(chat_hint)}</p>'
+            '<div id="web-chat-log" style="max-height:240px;overflow:auto"></div>'
+            f'<textarea id="web-chat-input" style="min-height:70px;margin-top:10px" placeholder="{escape("给这个节点发消息…" if zh else "Message this node…")}"></textarea>'
+            '<div class="row" style="margin-top:8px">'
+            f'<button id="web-chat-send">{escape("发送" if zh else "Send")}</button>'
+            '<span id="web-chat-status" class="hint"></span><span style="flex:1"></span>'
+            f'<a href="/chat?tree={tree_id}">{escape("整棵树对话 →" if zh else "Whole-tree chat →")}</a></div>'
+            f'<p class="hint" style="margin:8px 0 0">{escape("Ctrl+Enter 发送；缺 key 时去下面密钥区贴。" if zh else "Ctrl+Enter to send; if a key is missing, set it in the keys panel below.")}</p></div>'
+        )
+        studio = studio.replace('<div class="sec" id="glob">', chat_panel + '<div class="sec" id="glob">', 1)
+        chat_script = (
+            '<script>(function(){'
+            'var TREE_ID=' + str(tree_id) + ';'
+            'var SENDING_TXT=' + _js('发送中…' if zh else 'Sending…') + ';'
+            'var NAME_TXT=' + _js('先给这个节点起个名字' if zh else 'Give this node a name first') + ';'
+            'var EMPTY_TXT=' + _js('先写点消息' if zh else 'Write a message first') + ';'
+            'var MISSING_TXT=' + _js('这个服务商的 key 还没贴，去下面密钥区贴一下' if zh else 'This provider key is not set yet — set it in the keys panel below') + ';'
+            'var FAILED_TXT=' + _js('发送失败' if zh else 'Send failed') + ';'
+            'var YOU_TXT=' + _js('你' if zh else 'You') + ';'
+            'var PH_A=' + _js('给 ' if zh else 'Message ') + ';'
+            'var PH_B=' + _js(' 发消息…' if zh else '…') + ';'
+            'function currentNode(){var el=document.querySelector(".node.sel");if(!el)return null;'
+            'var b=el.querySelector(".nt b");var nm=el.querySelector(".nm");'
+            'return{name:b?b.textContent.trim():"",info:nm?nm.textContent.trim():""};}'
+            'function refreshChat(){var n=currentNode();var pill=document.getElementById("web-chat-node");'
+            'var inp=document.getElementById("web-chat-input");if(!n)return;'
+            'if(pill)pill.textContent=n.name;'
+            'if(inp)inp.placeholder=PH_A+n.name+PH_B;}'
+            'function appendMsg(who,text){var log=document.getElementById("web-chat-log");if(!log)return;'
+            'var d=document.createElement("div");d.style.marginBottom="10px";'
+            'var b=document.createElement("b");b.textContent=who+"：";d.appendChild(b);'
+            'd.appendChild(document.createTextNode(text));log.appendChild(d);log.scrollTop=log.scrollHeight;}'
+            'async function sendChat(){var n=currentNode();var inp=document.getElementById("web-chat-input");'
+            'var btn=document.getElementById("web-chat-send");var status=document.getElementById("web-chat-status");'
+            'if(!n||!n.name||n.name==="unnamed"){status.textContent=NAME_TXT;return;}'
+            'var text=inp.value.trim();if(!text){status.textContent=EMPTY_TXT;return;}'
+            'appendMsg(YOU_TXT,text);inp.value="";btn.disabled=true;status.textContent=SENDING_TXT;'
+            'try{var r=await fetch("/api/chat-node",{method:"POST",headers:{"Accept":"application/json"},'
+            'body:new URLSearchParams({tree_id:String(TREE_ID),node_name:n.name,message:text})});'
+            'var res=await r.json();'
+            'if(r.ok&&res.ok){appendMsg(n.name+" ("+res.provider+" · "+res.model+")",res.reply);status.textContent="";}'
+            'else if(res.missing_provider){status.textContent=MISSING_TXT;'
+            'var keys=document.getElementById("web-keys");if(keys)keys.scrollIntoView({block:"center"});}'
+            'else{status.textContent=(res.errors||[FAILED_TXT]).join("; ");}}'
+            'catch(e){status.textContent=FAILED_TXT+": "+e.message;}btn.disabled=false;}'
+            'var sendBtn=document.getElementById("web-chat-send");if(sendBtn)sendBtn.onclick=sendChat;'
+            'var chatInp=document.getElementById("web-chat-input");'
+            'if(chatInp)chatInp.addEventListener("keydown",function(e){if(e.ctrlKey&&e.key==="Enter"){e.preventDefault();sendChat();}});'
+            'document.addEventListener("click",function(){setTimeout(refreshChat,0);});'
+            'refreshChat();'
+            '})();</script>'
+        )
         keys_script = (
             '<script>(function(){'
             'var SET_TXT=' + _js(set_label) + ';var NOT_SET_TXT=' + _js(not_set_label) + ';'
@@ -891,7 +953,7 @@ class Handler(BaseHTTPRequestHandler):
                   'SAVED_STR': saved_str, 'SAVE_FAILED_STR': save_failed_str}
         injected = re.sub(r'INITIAL_ERROR|INITIAL_TEXT|SAVE_URL|IMPORT_FAILED|SAVING_STR|SAVED_STR|SAVE_FAILED_STR',
                           lambda match: _js(values[match[0]]), injected)
-        injected += keys_script
+        injected += keys_script + chat_script
         self.respond(studio.replace('</body>', injected + '\n</body>'), 400 if error else 200)
 
     @require_login
@@ -1026,6 +1088,56 @@ stream.onerror=()=>{{stream.close();setTimeout(()=>location.reload(),1500)}};</s
                 db.set_key(uid, provider, key)
             return self.json({'ok': True, 'status': db.keys_status(uid)})
         return self.json({'ok': True, 'status': db.keys_status(uid)})
+
+    @require_login
+    def api_chat_node(self):
+        """Chat with one node only: no delegation, no children, no saved run.
+
+        The node is identified by its (tree-unique) name, which is what the
+        studio panel sends for the currently selected node. Only the node's
+        own provider/model/role are used, with the caller's own stored key.
+        """
+        uid = self.user['id']
+        try:
+            tree_id = int(self.fields.get('tree_id', ''))
+        except (TypeError, ValueError):
+            return self.json({'ok': False, 'errors': ['Invalid tree id']}, 400)
+        tree = db.get_tree(tree_id, uid)
+        if tree is None:
+            return self.json({'ok': False, 'errors': ['Tree not found']}, 404)
+        try:
+            root = _node(tree['yaml_text'])
+        except (config.TreeError, ValueError) as exc:
+            return self.json({'ok': False, 'errors': [str(exc)]}, 400)
+        node_name = self.fields.get('node_name', '').strip()
+        message = self.fields.get('message', '').strip()
+        if not message:
+            return self.json({'ok': False, 'errors': ['Message is required']}, 400)
+        if len(message) > 20000:
+            return self.json({'ok': False, 'errors': ['Message is too long']}, 400)
+        target = None
+        stack = [root]
+        while stack:
+            node = stack.pop()
+            if node['name'] == node_name:
+                target = node
+                break
+            stack.extend(node['children'])
+        if target is None:
+            return self.json({'ok': False, 'errors': ['Node not found']}, 404)
+        provider, model, role = target['provider'], target['model'], target['role']
+        key = db.get_key(uid, provider)
+        if not key:
+            return self.json({'ok': False, 'errors': ['Missing key for provider'],
+                              'missing_provider': provider}, 400)
+        try:
+            reply, usage, _finish = providers.call(
+                provider, model, role, message,
+                max_tokens=1024, timeout=root.get('timeout', 120), key=key)
+        except providers.ProviderError as exc:
+            return self.json({'ok': False, 'errors': [str(exc)]}, 400)
+        return self.json({'ok': True, 'node': node_name, 'provider': provider,
+                          'model': model, 'reply': reply, 'usage': usage})
 
     @require_login
     def image_page(self):
