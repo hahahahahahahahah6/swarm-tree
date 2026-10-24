@@ -296,6 +296,38 @@ swarm-tree queue --tree tree.yaml            # pending owner decisions
 swarm-tree queue --tree tree.yaml --clear    # empty the queue
 ```
 
+### Operating loop (7 steps, from Simon Lin's e-commerce loop)
+
+`examples/loop-7step.yaml` is a serve-mode template for a business that
+runs itself in a loop, borrowed from Simon Lin's e-commerce AI loop —
+not his code (which is not open source) and not his data, just the
+operating shape that made it work:
+
+| Loop step | swarm-tree mechanism |
+|---|---|
+| 1. Data first | `data-agent` pulls and cleans today's data; its `trigger` hashes the source, so a quiet day costs $0.00 |
+| 2. Look at the numbers | `analyst-agent` flags anomalies with numbers, inventing none |
+| 3. One recommendation only | `advisor-agent` proposes exactly one action, ending in a `DECISION:` line |
+| 4. Owner decides | the owner queue is the gate; nothing proceeds without approval |
+| 5. Worker prepares | `worker-agent` prepares execution up to the last click — it never publishes, charges, or sends on its own |
+| 6. Independent verification | `verifier-agent` runs on a different provider from the worker and outputs `VERDICT: PASS/FAIL`; a FAIL is a veto via `DECISION:` |
+| 7. Feedback is the next trigger | tomorrow's `data-agent` tick runs only when its trigger hash changed, so the loop re-runs on real change, not on a timer |
+
+Two honest limits, kept on purpose. First, serve mode does not run a
+sequential pipeline: the steps are ordered by staggered daily times
+(08:00, 08:15, 08:30, 09:00, 09:30) and each node reads the previous
+node's latest output — the engine does not enforce the order. Second,
+the verifier is a soft veto, not a hard block: a FAIL lands in the
+owner queue, and a human still has to honour it. What was deliberately
+*not* copied: a heavy resident company platform, a shared data
+platform, and any auto-publish step. The loop stays light on purpose.
+
+```bash
+swarm-tree serve --tree examples/loop-7step.yaml --dry-run --once
+swarm-tree status --tree examples/loop-7step.yaml
+swarm-tree queue --tree examples/loop-7step.yaml
+```
+
 ## Web mode (v0.5): a website for your trees
 
 `swarm-tree web` starts a local, stdlib-only web app (no frameworks, no new
