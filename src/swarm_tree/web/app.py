@@ -643,6 +643,7 @@ class Handler(BaseHTTPRequestHandler):
                 ('GET', '/chat'): self.chat, ('POST', '/chat'): self.start_chat,
                 ('GET', '/images'): self.image_page, ('POST', '/images'): self.generate_image,
                 ('GET', '/settings/keys'): self.keys, ('POST', '/settings/keys'): self.keys,
+                ('GET', '/api/keys'): self.api_keys, ('POST', '/api/keys'): self.api_keys,
             }
             self.route_path = path
             if (method, path) in routes:
@@ -804,6 +805,56 @@ class Handler(BaseHTTPRequestHandler):
         studio = STUDIO.read_text(encoding='utf-8')
         lang = self.lang
         save_label = T(lang, 'save')
+        # API keys panel, injected into the studio right sidebar. Status only;
+        # key values are never rendered back to the page.
+        statuses = db.keys_status(self.user['id'])
+        set_label = T(lang, 'set')
+        not_set_label = T(lang, 'not_set')
+        rows = ''
+        for p in PROVIDERS:
+            status_text = set_label if statuses.get(p) else not_set_label
+            rows += (
+                f'<div style="margin-bottom:12px"><div class="fl"><span>{p} '
+                f'<span class="pill" id="web-key-status-{p}">{escape(status_text)}</span></span>'
+                f'<div class="row"><input type="password" id="web-key-{p}" autocomplete="new-password" '
+                f'placeholder="{escape(T(lang, "paste_key"))}" style="flex:1;min-width:0">'
+                f'<button data-web-key-save="{p}">{escape(save_label)}</button>'
+                f'<button data-web-key-del="{p}">{escape(T(lang, "delete"))}</button></div></div></div>'
+            )
+        keys_panel = (
+            '<div class="sec" id="web-keys">'
+            f'<div class="sh"><span>{escape(T(lang, "keys_title"))}</span></div>'
+            f'<p class="hint" style="margin:-2px 0 12px">{escape(T(lang, "keys_lede"))}</p>'
+            + rows +
+            '<p class="hint" id="web-keys-msg" style="margin:2px 0 0"></p></div>'
+        )
+        studio = studio.replace('</aside>', keys_panel + '</aside>', 1)
+        keys_script = (
+            '<script>(function(){'
+            'var SET_TXT=' + _js(set_label) + ';var NOT_SET_TXT=' + _js(not_set_label) + ';'
+            'var SAVED_TXT=' + _js('已保存' if lang == 'zh' else 'Saved') + ';'
+            'var DELETED_TXT=' + _js('已删除' if lang == 'zh' else 'Deleted') + ';'
+            'var EMPTY_TXT=' + _js('请先粘贴 Key' if lang == 'zh' else 'Paste a key first') + ';'
+            'var FAILED_TXT=' + _js('保存失败' if lang == 'zh' else 'Save failed') + ';'
+            'function setStatus(p,isSet){var el=document.getElementById("web-key-status-"+p);'
+            'if(el)el.textContent=isSet?SET_TXT:NOT_SET_TXT;}'
+            'async function postKey(p,body,msg){try{var r=await fetch("/api/keys",{method:"POST",'
+            'headers:{"Accept":"application/json"},body:body});var res=await r.json();'
+            'if(r.ok&&res.ok){msg.textContent=SAVED_TXT;return true;}'
+            'msg.textContent=(res.errors||[FAILED_TXT]).join("; ");}catch(e){msg.textContent=FAILED_TXT+": "+e.message;}'
+            'return false;}'
+            'document.querySelectorAll("[data-web-key-save]").forEach(function(btn){btn.onclick=async function(){'
+            'var p=btn.getAttribute("data-web-key-save");var inp=document.getElementById("web-key-"+p);'
+            'var msg=document.getElementById("web-keys-msg");var key=inp.value.trim();'
+            'if(!key){msg.textContent=EMPTY_TXT;return;}'
+            'if(await postKey(p,new URLSearchParams({provider:p,api_key:key}),msg)){inp.value="";setStatus(p,true);}};});'
+            'document.querySelectorAll("[data-web-key-del]").forEach(function(btn){btn.onclick=async function(){'
+            'var p=btn.getAttribute("data-web-key-del");var msg=document.getElementById("web-keys-msg");'
+            'var inp=document.getElementById("web-key-"+p);'
+            'if(await postKey(p,new URLSearchParams({provider:p,delete:"1"}),msg)){inp.value="";setStatus(p,false);'
+            'msg.textContent=DELETED_TXT;}};});'
+            '})();</script>'
+        )
         dash_label = T(lang, 'nav_dashboard')
         saving_str = '保存中…' if lang == 'zh' else 'Saving…'
         saved_str = '已保存' if lang == 'zh' else 'Saved'
@@ -840,6 +891,7 @@ class Handler(BaseHTTPRequestHandler):
                   'SAVED_STR': saved_str, 'SAVE_FAILED_STR': save_failed_str}
         injected = re.sub(r'INITIAL_ERROR|INITIAL_TEXT|SAVE_URL|IMPORT_FAILED|SAVING_STR|SAVED_STR|SAVE_FAILED_STR',
                           lambda match: _js(values[match[0]]), injected)
+        injected += keys_script
         self.respond(studio.replace('</body>', injected + '\n</body>'), 400 if error else 200)
 
     @require_login
@@ -956,6 +1008,24 @@ stream.onerror=()=>{{stream.close();setTimeout(()=>location.reload(),1500)}};</s
                   f'<div class="eyebrow"><b></b>{T(lang, "byok")}</div>'
                   f'<p class="lede-sm">{T(lang, "keys_lede")}</p>'
                   f'<form method="post">' + rows + f'<button class="btn">{T(lang, "save_keys")}</button></form>')
+
+    @require_login
+    def api_keys(self):
+        """JSON status/save for provider keys (studio panel). Never returns key values."""
+        uid = self.user['id']
+        if self.command == 'POST':
+            provider = self.fields.get('provider', '').strip()
+            if provider not in PROVIDERS:
+                return self.json({'ok': False, 'errors': ['Unknown provider']}, 400)
+            if self.fields.get('delete') == '1':
+                db.delete_key(uid, provider)
+            else:
+                key = self.fields.get('api_key', '').strip()
+                if not key:
+                    return self.json({'ok': False, 'errors': ['Key is required']}, 400)
+                db.set_key(uid, provider, key)
+            return self.json({'ok': True, 'status': db.keys_status(uid)})
+        return self.json({'ok': True, 'status': db.keys_status(uid)})
 
     @require_login
     def image_page(self):
