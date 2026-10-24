@@ -728,7 +728,8 @@ class Handler(BaseHTTPRequestHandler):
         items = ''.join(
             f'<div class="row"><a class="task" href="/runs/{r["id"]}">{escape(r["task"])}</a>'
             f'<span class="pill {escape(r["status"])}">{escape(r["status"])}</span></div>' for r in rows)
-        return f'<div class="runs">{items or "<p class=\'mute\'>" + T(self.lang, "no_runs") + "</p>"}</div>'
+        empty = "<p class='mute'>" + T(self.lang, "no_runs") + "</p>"
+        return f'<div class="runs">{items or empty}</div>'
 
     def image_grid(self, rows):
         return '<div class="grid-img">' + ''.join(
@@ -744,10 +745,11 @@ class Handler(BaseHTTPRequestHandler):
             f'<a href="/trees/{t["id"]}/edit">{T(lang, "edit")}</a><a href="/chat?tree={t["id"]}">{T(lang, "chat")}</a>'
             f'<form method="post" action="/trees/{t["id"]}/delete" class="inline">'
             f'<button class="link-btn">{T(lang, "delete")}</button></form></span></div>' for t in db.list_trees(uid))
+        empty_trees = "<p class='mute'>" + T(lang, "no_trees") + "</p>"
         self.page(T(lang, 'dashboard'),
                   f'<div class="eyebrow"><b></b>{T(lang, "your_trees")}</div>'
                   f'<a class="btn" href="/trees/new" style="margin-top:0">{T(lang, "new_tree")}</a>'
-                  f'<div class="runs" style="margin-top:22px">{trees or "<p class=\'mute\'>" + T(lang, "no_trees") + "</p>"}</div>'
+                  f'<div class="runs" style="margin-top:22px">{trees or empty_trees}</div>' 
                   f'<h2>{T(lang, "recent_runs")}</h2>' + self.run_list(db.list_runs(uid, limit=10)) +
                   f'<h2>{T(lang, "recent_images")}</h2>' + self.image_grid(db.list_images(uid, limit=8)),
                   headers={'Set-Cookie': cookie} if cookie else None)
