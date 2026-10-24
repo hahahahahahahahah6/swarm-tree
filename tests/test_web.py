@@ -255,6 +255,47 @@ class TestHTTP(unittest.TestCase):
             self.assertEqual(mocked.call_count, 1)
             self.assertEqual(mocked.call_args.kwargs['key'], 'fake-key')
 
+    def test_chat_node(self):
+        uid = self._signup()
+        root = leaf('root')
+        root['children'] = [dict(name='child', provider='gemini',
+                                  model='gemini-2.5-pro', role='Child role.')]
+        tid = db.create_tree(uid, 'Two nodes', json.dumps(root))
+        db.set_key(uid, 'openai', 'root-key')
+        db.set_key(uid, 'gemini', 'child-key')
+
+        def fake(provider, model, system, user, kind=None, max_tokens=1024,
+                 timeout=120, max_retries=3, key=None):
+            return f'{provider}/{model}/{system}/{user}/{key}', {}, 'stop'
+
+        with patch('swarm_tree.web.app.providers.call', side_effect=fake) as mocked:
+            status, _, body = self._req('POST', '/api/chat-node',
+                                        dict(tree_id=tid, node_name='child', message='hi'))
+            self.assertEqual(status, 200)
+            data = json.loads(body)
+            self.assertTrue(data['ok'])
+            self.assertEqual(data['node'], 'child')
+            self.assertEqual(data['provider'], 'gemini')
+            self.assertEqual(data['reply'], 'gemini/gemini-2.5-pro/Child role./hi/child-key')
+            self.assertEqual(mocked.call_count, 1)
+            # Single-node chat must not create a whole-tree run.
+            self.assertEqual(db.list_runs(uid), [])
+            # Missing key, unknown node, and another user's tree.
+            db.delete_key(uid, 'gemini')
+            status, _, body = self._req('POST', '/api/chat-node',
+                                        dict(tree_id=tid, node_name='child', message='hi'))
+            self.assertEqual(status, 400)
+            self.assertEqual(json.loads(body)['missing_provider'], 'gemini')
+            status, _, _ = self._req('POST', '/api/chat-node',
+                                     dict(tree_id=tid, node_name='nope', message='hi'))
+            self.assertEqual(status, 404)
+            other = db.create_user('other@example.com', b'hash', b'salt')
+            other_tid = db.create_tree(other, 'Private', json.dumps(leaf()))
+            status, _, _ = self._req('POST', '/api/chat-node',
+                                     dict(tree_id=other_tid, node_name='assistant', message='hi'))
+            self.assertEqual(status, 404)
+            self.assertEqual(mocked.call_count, 1)
+
     def test_images(self):
         uid = self._signup()
         db.set_key(uid, 'openai', 'fake-key')
