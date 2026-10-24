@@ -244,5 +244,51 @@ class TestLoadConfig(unittest.TestCase):
             config.load_config(path)
 
 
+class TestLoopExample(unittest.TestCase):
+    """examples/loop-7step.yaml must stay a valid, honest loop template."""
+
+    def _load_loop(self):
+        path = os.path.join(os.path.dirname(__file__), "..", "examples",
+                            "loop-7step.yaml")
+        try:
+            import yaml  # noqa: F401
+        except ImportError:
+            self.skipTest("PyYAML not installed")
+        return config.load_config(path)
+
+    def test_loop_loads_with_ceo_rollup(self):
+        node = self._load_loop()
+        self.assertEqual(node["name"], "ceo")
+        self.assertTrue(node["rollup"])
+
+    def test_loop_has_all_five_loop_nodes_with_budgets(self):
+        node = self._load_loop()
+        by_name = {c["name"]: c for c in node["children"]}
+        self.assertEqual(
+            set(by_name),
+            {"data-agent", "analyst-agent", "advisor-agent",
+             "worker-agent", "verifier-agent"})
+        for child in node["children"]:
+            self.assertIsNotNone(child["schedule"])
+            self.assertIsNotNone(child["budget_usd"])
+
+    def test_verifier_is_independent_of_worker(self):
+        node = self._load_loop()
+        by_name = {c["name"]: c for c in node["children"]}
+        worker = by_name["worker-agent"]
+        verifier = by_name["verifier-agent"]
+        self.assertNotEqual(
+            (worker["provider"], worker["model"]),
+            (verifier["provider"], verifier["model"]))
+        self.assertIn("VERDICT", verifier["role"])
+
+    def test_advisor_gives_one_recommendation_via_owner_queue(self):
+        node = self._load_loop()
+        advisor = next(c for c in node["children"]
+                       if c["name"] == "advisor-agent")
+        self.assertIn("exactly ONE", advisor["role"])
+        self.assertIn("DECISION:", advisor["role"])
+
+
 if __name__ == "__main__":
     unittest.main()
