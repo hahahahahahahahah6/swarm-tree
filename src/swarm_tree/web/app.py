@@ -68,127 +68,259 @@ def require_login(fn):
     return wrapped
 
 
-LANDING_HTML = """<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Swarm Tree — grow an agent team, chat with it, ship images</title>
-<style>
-:root{--bg:#0a0d12;--panel:#11151d;--line:#1f2632;--txt:#e8ecf3;--mut:#9aa4b5;--acc:#4ade80;--acc2:#22d3ee}
+LANDING_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Swarm Tree</title><meta name="description" content="Swarm Tree is a hierarchical multi-agent orchestration tool. A coordinator delegates to child agents, each on the LLM provider you choose, with your own keys."><meta name="theme-color" content="#f3f1ea"><link rel="icon" href="data:,"><style>
+:root{--paper:#f3f1ea;--paper2:#ece9df;--ink:#171715;--ink2:#3a3934;--mute:#77736a;--line:rgba(23,23,21,.13);--line2:rgba(23,23,21,.26);--accent:#c23a22;--sans:-apple-system,BlinkMacSystemFont,"Helvetica Neue","Hiragino Sans","Apple SD Gothic Neo","Segoe UI","Noto Sans",Arial,sans-serif;--mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;--w:1120px;--g:28px;}
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--txt);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;line-height:1.6}
-a{color:inherit}
-.wrap{max-width:1080px;margin:0 auto;padding:0 22px}
-nav{position:sticky;top:0;z-index:10;background:rgba(10,13,18,.85);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+body{background:var(--paper);color:var(--ink);font:16px/1.6 var(--sans);-webkit-font-smoothing:antialiased;overflow-x:hidden}
+a{color:inherit;text-decoration:none}
+::selection{background:var(--accent);color:var(--paper)}
+.wrap{max-width:var(--w);margin:0 auto;padding:0 var(--g)}
+.mono{font-family:var(--mono)}
+nav{position:sticky;top:0;z-index:10;background:rgba(243,241,234,.88);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
 nav .wrap{display:flex;align-items:center;justify-content:space-between;height:60px}
-.brand{font-weight:800;font-size:19px;letter-spacing:.3px;text-decoration:none}
-.brand span{color:var(--acc)}
-.btn{display:inline-block;padding:10px 22px;border-radius:10px;font-weight:700;text-decoration:none;font-size:15px;border:1px solid var(--line)}
-.btn.pri{background:var(--acc);border-color:var(--acc);color:#06130b}
-.btn.ghost{color:var(--txt)}
-.btn.pri:hover{filter:brightness(1.08)}
-.navlinks{display:flex;gap:10px;align-items:center}
-.hero{padding:84px 0 60px;text-align:center}
-.kicker{display:inline-block;font-size:13px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--acc);border:1px solid #1d3a2a;background:#0e1a13;padding:6px 14px;border-radius:999px;margin-bottom:22px}
-h1{font-size:clamp(34px,6vw,58px);line-height:1.12;font-weight:800;letter-spacing:-1px;margin-bottom:18px}
-h1 .g{background:linear-gradient(90deg,var(--acc),var(--acc2));-webkit-background-clip:text;background-clip:text;color:transparent}
-.sub{color:var(--mut);font-size:clamp(16px,2.4vw,19px);max-width:640px;margin:0 auto 30px}
-.cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-bottom:54px}
-.treebox{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:26px 12px;max-width:720px;margin:0 auto;overflow-x:auto}
-.feats{padding:30px 0 10px}
-.feats h2,.steps h2{text-align:center;font-size:clamp(24px,4vw,32px);margin-bottom:8px;letter-spacing:-.5px}
-.feats p.lead{text-align:center;color:var(--mut);margin-bottom:30px}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:24px}
-.card .ic{font-size:26px;margin-bottom:10px}
-.card h3{font-size:17px;margin-bottom:8px}
-.card p{color:var(--mut);font-size:14.5px}
-.steps{padding:56px 0}
-.sgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;counter-reset:st}
-.step{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:24px;position:relative}
-.step b.n{display:inline-flex;width:30px;height:30px;border-radius:50%;background:#12331f;color:var(--acc);align-items:center;justify-content:center;font-size:15px;margin-bottom:12px}
-.step h3{font-size:16px;margin-bottom:8px}
-.step p{color:var(--mut);font-size:14.5px}
-.step code{background:#0a0d12;border:1px solid var(--line);border-radius:6px;padding:1px 7px;font-size:13px;color:var(--acc2)}
-.cta2{text-align:center;padding:40px 0 70px}
-.cta2 h2{font-size:clamp(24px,4vw,34px);margin-bottom:12px}
-.cta2 p{color:var(--mut);margin-bottom:24px}
-footer{border-top:1px solid var(--line);padding:26px 0;color:var(--mut);font-size:14px}
-footer .wrap{display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px}
-footer a{color:var(--mut);text-decoration:none;margin-left:18px}
-footer a:hover{color:var(--txt)}
-@media(max-width:560px){.hero{padding:56px 0 40px}.navlinks .btn.ghost{display:none}}
-</style>
-</head>
-<body>
-<nav><div class="wrap">
-<a class="brand" href="/">🌲 <span>Swarm</span> Tree</a>
-<div class="navlinks"><a class="btn ghost" href="/login">Log in</a><a class="btn pri" href="/signup">Get started</a></div>
-</div></nav>
-<div class="wrap">
-<section class="hero">
-<div class="kicker">v0.5 &mdash; now with a web studio</div>
-<h1>Grow an agent tree.<br><span class="g">Chat with it. Ship images.</span></h1>
-<p class="sub">Swarm Tree turns a YAML tree of LLM agents into a living team: design it visually, talk to it in the browser, and generate images &mdash; all with your own provider keys.</p>
-<div class="cta">
-<a class="btn pri" href="/signup">Start free</a>
-<a class="btn ghost" href="https://github.com/hahahahahahahahah6/swarm-tree">⭐ GitHub</a>
-</div>
-<div class="treebox">
-<svg viewBox="0 0 640 300" width="100%" style="max-width:640px" role="img" aria-label="agent tree diagram">
-<defs><marker id="ar" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#3a4456"/></marker></defs>
-<g font-family="inherit" font-size="13" text-anchor="middle">
-<line x1="320" y1="46" x2="180" y2="120" stroke="#3a4456" stroke-width="2" marker-end="url(#ar)"/>
-<line x1="320" y1="46" x2="460" y2="120" stroke="#3a4456" stroke-width="2" marker-end="url(#ar)"/>
-<line x1="180" y1="152" x2="110" y2="226" stroke="#3a4456" stroke-width="2" marker-end="url(#ar)"/>
-<line x1="180" y1="152" x2="250" y2="226" stroke="#3a4456" stroke-width="2" marker-end="url(#ar)"/>
-<line x1="460" y1="152" x2="460" y2="226" stroke="#3a4456" stroke-width="2" marker-end="url(#ar)"/>
-<rect x="248" y="14" width="144" height="34" rx="10" fill="#12331f" stroke="#4ade80"/>
-<text x="320" y="36" fill="#4ade80" font-weight="700">🎯 coordinator</text>
-<rect x="108" y="120" width="144" height="34" rx="10" fill="#11151d" stroke="#3a4456"/>
-<text x="180" y="142" fill="#e8ecf3">🔍 researcher</text>
-<rect x="388" y="120" width="144" height="34" rx="10" fill="#11151d" stroke="#3a4456"/>
-<text x="460" y="142" fill="#e8ecf3">🎨 designer</text>
-<rect x="38" y="226" width="144" height="34" rx="10" fill="#11151d" stroke="#3a4456"/>
-<text x="110" y="248" fill="#9aa4b5">📄 summarizer</text>
-<rect x="178" y="226" width="144" height="34" rx="10" fill="#11151d" stroke="#3a4456"/>
-<text x="250" y="248" fill="#9aa4b5">✅ fact-checker</text>
-<rect x="388" y="226" width="144" height="34" rx="10" fill="#0e2a33" stroke="#22d3ee"/>
-<text x="460" y="248" fill="#22d3ee">🖼️ image-gen</text>
-</g></svg>
-</div>
-</section>
-<section class="feats">
-<h2>One tree, every superpower</h2>
-<p class="lead">Design once in the visual studio. Run anywhere &mdash; CLI or web.</p>
+.brand{display:flex;align-items:center;gap:10px;font-weight:600;letter-spacing:-.01em;font-size:15px}
+.brand svg{width:20px;height:20px}
+.links{display:flex;gap:28px;font-size:13.5px;color:var(--ink2)}
+.ul{position:relative}
+.ul::after{content:"";position:absolute;left:0;right:0;bottom:-3px;height:1px;background:currentColor;transform:scaleX(0);transform-origin:right;transition:transform .35s cubic-bezier(.2,.7,.2,1)}
+.ul:hover::after{transform:scaleX(1);transform-origin:left}
+.hero{padding:88px 0 96px;border-bottom:1px solid var(--line)}
+.hero .wrap{display:grid;grid-template-columns:1.08fr .92fr;gap:64px;align-items:center}
+.eyebrow{font:12px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--mute);display:flex;align-items:center;gap:12px;margin-bottom:32px}
+.eyebrow b{width:8px;height:8px;background:var(--accent);display:inline-block}
+h1{font-size:clamp(42px,6.6vw,78px);line-height:1.02;letter-spacing:-.045em;font-weight:600}
+h1 em{font-style:normal;color:var(--accent)}
+.lede{margin-top:28px;max-width:500px;font-size:17.5px;color:var(--ink2);line-height:1.65}
+.term{margin-top:36px;border-top:1px solid var(--line2);border-bottom:1px solid var(--line);padding:14px 0;font:13.5px/1.5 var(--mono);color:var(--ink2);overflow:hidden;white-space:nowrap;text-overflow:clip;max-width:560px}
+.term .p{color:var(--accent);margin-right:8px}
+.term .q{color:var(--ink)}
+.caret{display:inline-block;width:7px;height:15px;background:var(--ink);vertical-align:-2px;margin-left:1px;animation:blink 1.05s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+.acts{margin-top:36px;display:flex;gap:28px;align-items:center;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:10px;background:var(--ink);color:var(--paper);padding:13px 20px;font-size:14px;font-weight:500;letter-spacing:-.005em;transition:background .25s,transform .25s}
+.btn:hover{background:var(--accent)}
+.btn svg{width:16px;height:16px;transition:transform .3s}
+.btn:hover svg{transform:translateX(3px)}
+.txt{font-size:14px;color:var(--ink2);display:inline-flex;gap:8px;align-items:center}
+figure{position:relative;border:1px solid var(--line2);background:linear-gradient(var(--paper),var(--paper2));padding:22px 22px 0}
+.fig-top{display:flex;justify-content:space-between;font:11px/1 var(--mono);color:var(--mute);letter-spacing:.06em;text-transform:uppercase;padding-bottom:14px;border-bottom:1px solid var(--line)}
+.fig-top .st{display:flex;align-items:center;gap:7px}
+.fig-top .st i{width:6px;height:6px;border-radius:50%;background:var(--mute);transition:background .3s}
+.fig-top .st.live i{background:var(--accent)}
+#tree{display:block;width:100%;height:auto;margin:10px 0 4px}
+#tree .edge{fill:none;stroke:var(--line2);stroke-width:1}
+#tree .edge.hot{stroke:var(--ink2)}
+#tree .core{fill:var(--paper);stroke:var(--ink);stroke-width:1.2;transition:fill .35s}
+#tree .halo{fill:none;stroke:var(--accent);stroke-width:1;opacity:0;transform-box:fill-box;transform-origin:center}
+#tree .on .core{fill:var(--accent);stroke:var(--accent)}
+#tree .on .halo{animation:ring 1.6s ease-out infinite}
+#tree .done .core{fill:var(--ink)}
+#tree .lbl{font:500 11.5px var(--mono);fill:var(--ink);text-anchor:middle}
+#tree .prov{font:10px var(--mono);fill:var(--mute);text-anchor:middle;letter-spacing:.04em}
+@keyframes ring{0%{transform:scale(.6);opacity:.7}100%{transform:scale(2.1);opacity:0}}
+.log{border-top:1px solid var(--line);margin:0 -22px;padding:12px 22px 14px;height:118px;font:11.5px/1.75 var(--mono);color:var(--ink2);overflow:hidden;display:flex;flex-direction:column;justify-content:flex-end}
+.log div{display:grid;grid-template-columns:52px 96px 1fr;white-space:nowrap;animation:lin .4s ease-out}
+.log div span:first-child{color:var(--mute)}
+.log div span:nth-child(2){color:var(--ink)}
+.log div:nth-last-child(n+4){opacity:.38}
+@keyframes lin{from{opacity:0;transform:translateY(6px)}}
+figcaption{position:absolute;right:-30px;top:0;writing-mode:vertical-rl;font:10.5px/1 var(--mono);letter-spacing:.18em;text-transform:uppercase;color:var(--mute)}
+section{padding:112px 0;border-bottom:1px solid var(--line)}
+.sh{display:flex;align-items:center;gap:16px;font:12px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--mute);margin-bottom:56px}
+.sh .no{color:var(--accent)}
+.sh i{flex:1;height:1px;background:var(--line)}
+h2{font-size:clamp(30px,4.2vw,48px);line-height:1.08;letter-spacing:-.035em;font-weight:600;max-width:720px}
+.sub{margin-top:18px;color:var(--ink2);max-width:560px;font-size:16.5px}
+.grid{margin-top:64px;display:grid;grid-template-columns:1fr 1fr;border-top:1px solid var(--line2);border-left:1px solid var(--line)}
+.cell{position:relative;border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:36px 34px 40px;transition:background .35s}
+.cell:hover{background:rgba(255,255,255,.45)}
+.cell .hd{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:40px}
+.cell svg{width:30px;height:30px;stroke:var(--ink);fill:none;stroke-width:1.15;stroke-linecap:round;stroke-linejoin:round;transition:stroke .3s,transform .5s cubic-bezier(.2,.7,.2,1)}
+.cell:hover svg{stroke:var(--accent);transform:translateY(-2px)}
+.cell .n{font:11.5px var(--mono);color:var(--mute)}
+.cell h3{font-size:21px;letter-spacing:-.02em;font-weight:600;margin-bottom:10px}
+.cell p{color:var(--ink2);font-size:15px;max-width:420px}
+.specs{list-style:none;margin-top:22px;border-top:1px solid var(--line)}
+.specs li{display:grid;grid-template-columns:110px 1fr;gap:12px;padding:10px 0;border-bottom:1px solid var(--line);font-size:14px;color:var(--ink2)}
+.specs li span{font:11.5px/1.9 var(--mono);color:var(--ink);text-transform:lowercase}
+.prov-row{margin-top:64px;display:grid;grid-template-columns:200px 1fr;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.prov-row .k{padding:20px 0;font:12px/1.5 var(--mono);color:var(--mute);letter-spacing:.06em;text-transform:uppercase}
+.prov-row ul{list-style:none;display:flex;flex-wrap:wrap}
+.prov-row li{padding:18px 26px;border-left:1px solid var(--line);font:14px var(--mono);color:var(--ink);transition:color .25s}
+.prov-row li:hover{color:var(--accent)}
+.steps{margin-top:64px;display:grid;grid-template-columns:repeat(3,1fr);gap:0;border-top:1px solid var(--line2)}
+.step{padding:34px 30px 0 0;border-right:1px solid var(--line);margin-right:30px}
+.step:last-child{border-right:0;margin-right:0}
+.step .big{font:300 56px/1 var(--sans);letter-spacing:-.05em;color:var(--line2);transition:color .4s}
+.step:hover .big{color:var(--accent)}
+.step h3{margin:22px 0 8px;font-size:19px;letter-spacing:-.02em;font-weight:600}
+.step p{color:var(--ink2);font-size:15px;min-height:72px}
+pre{margin-top:22px;font:12.5px/1.75 var(--mono);color:var(--ink2);border-top:1px solid var(--line);padding:16px 0 32px;overflow-x:auto;white-space:pre}
+pre .k{color:var(--ink)}pre .a{color:var(--accent)}pre .c{color:var(--mute)}
+.cta{padding:136px 0;text-align:left}
+.cta h2{font-size:clamp(36px,5.6vw,68px);max-width:none;letter-spacing:-.045em}
+.cta h2 em{font-style:normal;color:var(--accent)}
+.clone{margin-top:44px;display:flex;align-items:stretch;max-width:640px;border:1px solid var(--line2)}
+.clone code{flex:1;font:13px/1 var(--mono);padding:17px 18px;color:var(--ink2);overflow-x:auto;white-space:nowrap}
+.clone code b{color:var(--accent);font-weight:400;margin-right:8px}
+.clone button{font:12px var(--mono);letter-spacing:.06em;text-transform:uppercase;border:0;border-left:1px solid var(--line2);background:transparent;color:var(--ink);padding:0 20px;cursor:pointer;transition:background .25s,color .25s;min-width:88px}
+.clone button:hover{background:var(--ink);color:var(--paper)}
+.cta .acts{margin-top:28px}
+footer{padding:40px 0 48px}
+footer .wrap{display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap;font-size:13px;color:var(--mute)}
+footer .r{display:flex;gap:26px;font-family:var(--mono);font-size:12.5px}
+footer a{color:var(--ink2)}
+.rv{opacity:0;transform:translateY(16px);transition:opacity .8s cubic-bezier(.2,.7,.2,1),transform .8s cubic-bezier(.2,.7,.2,1);transition-delay:var(--d,0ms)}
+.rv.in{opacity:1;transform:none}
+.hero .rv{transition-duration:1s}
+@media (max-width:920px){
+.hero{padding:56px 0 72px}
+.hero .wrap{grid-template-columns:1fr;gap:56px}
+figcaption{display:none}
+.steps{grid-template-columns:1fr}
+.step{border-right:0;margin-right:0;padding-right:0}
+.step p{min-height:0}
+}
+@media (max-width:680px){
+:root{--g:16px}
+.links .hide{display:none}
+.links{gap:20px}
+section{padding:80px 0}
+.sh{margin-bottom:40px}
+.grid{grid-template-columns:1fr;margin-top:44px}
+.cell{padding:28px 22px 32px}
+.cell .hd{margin-bottom:28px}
+.specs li{grid-template-columns:92px 1fr}
+.prov-row{grid-template-columns:1fr;margin-top:44px}
+.prov-row .k{padding:14px 0 6px}
+.prov-row ul{border-top:1px solid var(--line)}
+.prov-row li{padding:13px 16px 13px 0;border-left:0;margin-right:4px}
+.steps{margin-top:44px}
+.lede{font-size:16.5px}
+figure{padding:16px 16px 0}
+.log{margin:0 -16px;padding:10px 16px 12px;font-size:10.5px}
+.log div{grid-template-columns:44px 82px 1fr}
+.cta{padding:96px 0}
+.clone code{font-size:11.5px;padding:15px 12px}
+.clone button{min-width:70px;padding:0 12px}
+}
+@media (prefers-reduced-motion:reduce){
+::before,*::after{animation:none!important;transition:none!important}
+.rv{opacity:1;transform:none}
+}
+</style></head><body><nav><div class="wrap"><a class="brand" href="#top" aria-label="Swarm Tree home"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 5v5M10 10H4.5v4.5M10 10h5.5v4.5" fill="none" stroke="#171715" stroke-width="1.2"/><circle cx="10" cy="4" r="2.4" fill="#c23a22"/><circle cx="4.5" cy="16" r="2" fill="#171715"/><circle cx="15.5" cy="16" r="2" fill="#171715"/></svg>Swarm Tree</a><div class="links"><a class="ul hide" href="#features">Features</a><a class="ul hide" href="#how">How it works</a><a class="ul" href="/login">Log in</a><a class="ul" href="https://github.com/hahahahahahahahah6/swarm-tree">GitHub</a></div></div></nav>
+<header class="hero" id="top"><div class="wrap"><div><div class="eyebrow rv"><b></b>Hierarchical multi-agent orchestration</div><h1 class="rv" style="--d:80ms">Hand one task<br>to a tree of<br>agents<em>.</em></h1><p class="lede rv" style="--d:180ms">A coordinator splits the work and delegates it down to specialists: a researcher, a designer, an image node. Each runs on the model you pick, with your own keys. Write the tree in YAML or draw it in the studio.</p><div class="term rv" style="--d:260ms" aria-label="Example command"><span class="p">$</span>swarm-tree run --tree tree.yaml --task "<span class="q" id="typed"></span><span class="caret"></span>"</div><div class="acts rv" style="--d:340ms"><a class="btn" href="/signup">Start free <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 8h10M9 4l4 4-4 4"/></svg></a><a class="txt ul" href="#how">How it works</a></div></div>
+<figure class="rv" style="--d:200ms">
+<div class="fig-top"><span>tree.yaml</span><span class="st" id="st"><i></i><span id="stt">idle</span></span></div>
+<svg id="tree" viewBox="0 0 400 320" role="img" aria-label="Animated diagram: a coordinator delegates to researcher, designer and writer agents; the designer delegates to an image-gen agent; results flow back up."></svg>
+<div class="log" id="log" aria-hidden="true"></div>
+<figcaption>fig. 1 &nbsp;one task through the tree</figcaption>
+</figure>
+</div></header><section id="features"><div class="wrap"><div class="sh rv"><span class="no">01</span><span>Features</span><i></i></div><h2 class="rv">Everything the tree needs, and nothing it doesn't.</h2><p class="sub rv">A CLI for scripts, a studio for people, and a serve mode for trees that should keep working after you close the tab.</p>
 <div class="grid">
-<div class="card"><div class="ic">🌳</div><h3>Visual tree editor</h3><p>Drag nodes, set prompts, providers and budgets per node. Export validated YAML in one click.</p></div>
-<div class="card"><div class="ic">💬</div><h3>Streaming chat</h3><p>Talk to any tree in the browser. Watch each agent work live, keep full run history.</p></div>
-<div class="card"><div class="ic">🖼️</div><h3>Image generation</h3><p>Generate images from chat or a dedicated studio. Latest OpenAI &amp; Gemini image models.</p></div>
-<div class="card"><div class="ic">⏰</div><h3>Schedules &amp; triggers</h3><p>Nodes run on cron, on file changes, or on shell triggers. Skip the LLM call when nothing changed.</p></div>
+<div class="cell rv">
+<div class="hd"><svg viewBox="0 0 30 30" aria-hidden="true"><circle cx="15" cy="6" r="2.6"/><circle cx="6" cy="23" r="2.6"/><circle cx="15" cy="23" r="2.6"/><circle cx="24" cy="23" r="2.6"/><path d="M15 8.6V15M15 15H6v5.4M15 15v5.4M15 15h9v5.4"/></svg><span class="n">01 / 04</span></div>
+<h3>Visual editor</h3>
+<p>Build trees on a canvas. Add a node, nest it under a parent, give it a role, a prompt and a provider. See the whole hierarchy at a glance instead of reading indentation.</p>
 </div>
-</section>
-<section class="steps">
-<h2>Live in three steps</h2>
-<div class="sgrid" style="margin-top:26px">
-<div class="step"><b class="n">1</b><h3>Create an account</h3><p>Thirty seconds. No credit card &mdash; you bring your own provider keys.</p></div>
-<div class="step"><b class="n">2</b><h3>Design your tree</h3><p>Use the visual studio or paste YAML. <code>swarm-tree validate</code> checks it instantly.</p></div>
-<div class="step"><b class="n">3</b><h3>Chat &amp; create</h3><p>Talk to your team, generate images, set schedules. Watch the tree work.</p></div>
+<div class="cell rv" style="--d:90ms">
+<div class="hd"><svg viewBox="0 0 30 30" aria-hidden="true"><path d="M5 7h20v13H12l-7 5z"/><path d="M10 12h10M10 16h6"/></svg><span class="n">02 / 04</span></div>
+<h3>Streaming chat</h3>
+<p>Talk to any tree. Output streams in as each node works, so you can see which agent is speaking, what it was asked, and what it handed back up.</p>
 </div>
-</section>
-<section class="cta2">
-<h2>Your keys, your agents, your images.</h2>
-<p>Bring-your-own-key: keys are stored encrypted-ish (0600 SQLite), never logged, never echoed back.</p>
-<a class="btn pri" href="/signup" style="font-size:17px;padding:13px 34px">Get started — it's free</a>
-</section>
+<div class="cell rv">
+<div class="hd"><svg viewBox="0 0 30 30" aria-hidden="true"><rect x="5" y="6" width="20" height="18"/><circle cx="11.5" cy="12.5" r="2"/><path d="M5 21l6-5 4.5 3.5 3.5-2.5 6 4.5"/></svg><span class="n">03 / 04</span></div>
+<h3>Image generation</h3>
+<p>Image nodes call the latest OpenAI and Gemini image models. A designer agent writes the brief, the image node renders it, and the result lands in the same thread.</p>
 </div>
-<footer><div class="wrap">
-<span>🌲 Swarm Tree v0.5.0 — stdlib-only, MIT</span>
-<span><a href="https://github.com/hahahahahahahahah6/swarm-tree">GitHub</a><a href="https://dev.to/haoli">Blog</a><a href="/login">Log in</a></span>
-</div></footer>
-</body>
-</html>
+<div class="cell rv" style="--d:90ms">
+<div class="hd"><svg viewBox="0 0 30 30" aria-hidden="true"><circle cx="15" cy="15" r="10"/><path d="M15 9v6l4 2.5"/></svg><span class="n">04 / 04</span></div>
+<h3>Schedules &amp; triggers</h3>
+<p>Serve mode keeps trees running on their own, and keeps them cheap.</p>
+<ul class="specs">
+<li><span>schedule</span>Each node runs on its own cadence.</li>
+<li><span>trigger</span>A shell check runs first. Nothing changed, no LLM call.</li>
+<li><span>budget</span>Spend caps set per node, not per tree.</li>
+<li><span>queue</span>Actions that need you wait in an owner queue.</li>
+</ul>
+</div>
+</div>
+<div class="prov-row rv">
+<div class="k">Bring your own key</div>
+<ul><li>OpenAI</li><li>Anthropic</li><li>Gemini</li><li>xAI</li><li>DeepSeek</li></ul>
+</div>
+</div></section><section id="how"><div class="wrap"><div class="sh rv"><span class="no">02</span><span>How it works</span><i></i></div><h2 class="rv">Three steps. Define, run, then leave it running.</h2>
+<div class="steps">
+<div class="step rv">
+<div class="big">01</div>
+<h3>Define the tree</h3>
+<p>One coordinator at the root. Children for each kind of work. A provider on every node.</p>
+<pre><span class="c"># tree.yaml (sketch)</span>
+<span class="k">root</span>: <span class="a">coordinator</span>  <span class="k">provider</span>: anthropic
+<span class="k">children</span>:
+  - <span class="a">researcher</span>  <span class="k">provider</span>: openai
+  - <span class="a">designer</span>    <span class="k">provider</span>: gemini
+  - <span class="a">image-gen</span>   <span class="k">provider</span>: openai</pre>
+</div>
+<div class="step rv" style="--d:110ms">
+<div class="big">02</div>
+<h3>Run a task</h3>
+<p>From the terminal, or open the studio and chat with the tree while it streams.</p>
+<pre><span class="a">$</span> <span class="k">swarm-tree run</span> \
+  --tree tree.yaml \
+  --task "Write a launch brief"</pre>
+</div>
+<div class="step rv" style="--d:220ms">
+<div class="big">03</div>
+<h3>Serve it</h3>
+<p>Nodes wake on schedule or when a trigger finds real change. Budgets hold. You approve what matters.</p>
+<pre><span class="k">digest</span>   schedule mon 09:00
+<span class="k">watcher</span>  trigger <span class="c">no change, skipped</span>
+<span class="k">writer</span>   budget $0.42 / $2.00
+<span class="k">owner</span>    queue <span class="a">1 waiting</span></pre>
+</div>
+</div>
+</div></section><section class="cta"><div class="wrap"><div class="sh rv"><span class="no">03</span><span>Start</span><i></i></div><h2 class="rv">Start with one coordinator<br>and two children<em>.</em> Grow from there.</h2><div class="acts rv" style="--d:120ms"><a class="btn" href="/signup">Create free account <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 8h10M9 4l4 4-4 4"/></svg></a><a class="txt ul" href="https://github.com/hahahahahahahahah6/swarm-tree">or read the docs on GitHub</a></div><div class="clone rv" style="--d:200ms"><code><b>$</b>git clone https://github.com/hahahahahahahahah6/swarm-tree</code><button type="button" id="copy">Copy</button></div></div></section><footer><div class="wrap"><span class="brand"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 5v5M10 10H4.5v4.5M10 10h5.5v4.5" fill="none" stroke="#171715" stroke-width="1.2"/><circle cx="10" cy="4" r="2.4" fill="#c23a22"/><circle cx="4.5" cy="16" r="2" fill="#171715"/><circle cx="15.5" cy="16" r="2" fill="#171715"/></svg>Swarm Tree</span><div class="r"><span>tree.haocoach.com</span><a class="ul" href="/login">Log in</a><a class="ul" href="https://github.com/hahahahahahahahah6/swarm-tree">GitHub</a><span>&copy; 2026</span></div></div></footer>
+<script>
+(function(){
+var RM = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+var els = document.querySelectorAll('.rv');
+if ('IntersectionObserver' in window && !RM) {
+var io = new IntersectionObserver(function(es){
+es.forEach(function(e){ if (e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); } });
+}, {threshold: .12, rootMargin: '0px 0px -40px 0px'});
+els.forEach(function(el){ io.observe(el); });
+} else els.forEach(function(el){ el.classList.add('in'); });
+var tasks = ['Write a launch brief with a hero image', 'Compare pricing across five competitors', "Summarize this week's issues into a digest", 'Draft three logo directions and render them'];
+var t = document.getElementById('typed'), ti = 0, ci = 0, del = false;
+function type(){
+var s = tasks[ti];
+if (!del) { ci++; t.textContent = s.slice(0, ci); if (ci === s.length){ del = true; return setTimeout(type, 2400); } setTimeout(type, 38 + Math.random()*40); }
+else { ci--; t.textContent = s.slice(0, ci); if (ci === 0){ del = false; ti = (ti+1) % tasks.length; return setTimeout(type, 380); } setTimeout(type, 16); }
+}
+if (RM) t.textContent = tasks[0]; else setTimeout(type, 900);
+var NS = 'http://www.w3.org/2000/svg', svg = document.getElementById('tree');
+var N = { root:{x:200,y:34,l:'coordinator',p:'anthropic'}, res:{x:70,y:150,l:'researcher',p:'openai'}, des:{x:200,y:150,l:'designer',p:'gemini'}, wri:{x:330,y:150,l:'writer',p:'xai'}, img:{x:200,y:262,l:'image-gen',p:'openai'} };
+var E = {}, G = {};
+function mk(tag, a, parent){ var el = document.createElementNS(NS, tag); for (var k in a) el.setAttribute(k, a[k]); (parent||svg).appendChild(el); return el; }
+function edge(a, b){ var A = N[a], B = N[b], y1 = A.y + 9, y2 = B.y - 9, m = (y1 + y2) / 2 + (a === 'root' ? 8 : 0); E[a+b] = mk('path', {'class':'edge', d:'M'+A.x+' '+(y1+30)+' C'+A.x+' '+(m+20)+' '+B.x+' '+(m-10)+' '+B.x+' '+y2}); }
+edge('root','res'); edge('root','des'); edge('root','wri'); edge('des','img');
+E.desimg.setAttribute('d', 'M200 189 L200 253');
+Object.keys(N).forEach(function(k){ var n = N[k], g = mk('g', {'class':'nd', transform:'translate('+n.x+' '+n.y+')'}); mk('circle', {'class':'halo', r:9}, g); mk('circle', {'class':'core', r:6}, g); mk('text', {'class':'lbl', y:24}, g).textContent = n.l; mk('text', {'class':'prov', y:37}, g).textContent = n.p; G[k] = g; });
+var log = document.getElementById('log'), st = document.getElementById('st'), stt = document.getElementById('stt'), t0 = 0;
+function L(who, msg){ var s = ((performance.now() - t0) / 1000).toFixed(1), d = document.createElement('div'); d.innerHTML = '<span>' + (s < 10 ? '0' : '') + s + 's</span><span>' + who + '</span><span>' + msg + '</span>'; log.appendChild(d); while (log.children.length > 6) log.removeChild(log.firstChild); }
+function on(k){ G[k].setAttribute('class','nd on'); }
+function done(k){ G[k].setAttribute('class','nd done'); }
+function wait(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+function pulse(key, back, color){ return new Promise(function(res){ var p = E[key], len = p.getTotalLength(), dot = mk('circle', {r:3, fill: color || '#c23a22'}), s = null, dur = 780; p.classList.add('hot'); function f(ts){ if (!s) s = ts; var k = Math.min(1, (ts - s) / dur), e = k < .5 ? 2*k*k : 1 - Math.pow(-2*k + 2, 2) / 2; var pt = p.getPointAtLength(len * (back ? 1 - e : e)); dot.setAttribute('cx', pt.x); dot.setAttribute('cy', pt.y); if (k < 1) requestAnimationFrame(f); else { dot.remove(); p.classList.remove('hot'); res(); } } requestAnimationFrame(f); }); }
+function reset(){ Object.keys(G).forEach(function(k){ G[k].setAttribute('class','nd'); }); log.innerHTML = ''; }
+async function run(){ for (;;) { reset(); t0 = performance.now(); st.classList.add('live'); stt.textContent = 'running'; on('root'); L('coordinator', 'plan: 3 subtasks'); await wait(800); await Promise.all([ pulse('rootres').then(function(){ on('res'); L('researcher', 'reading 12 sources'); }), wait(160).then(function(){ return pulse('rootdes'); }).then(function(){ on('des'); L('designer', 'writing image brief'); }), wait(320).then(function(){ return pulse('rootwri'); }).then(function(){ on('wri'); L('writer', 'outlining copy'); }) ]); await wait(700); await pulse('desimg'); on('img'); L('image-gen', 'rendering 1 of 1'); await wait(900); done('res'); L('researcher', 'notes returned'); await pulse('rootres', true, '#171715'); await wait(300); done('img'); L('image-gen', 'image returned'); await pulse('desimg', true, '#171715'); done('des'); await pulse('rootdes', true, '#171715'); done('wri'); L('writer', 'draft returned'); await pulse('rootwri', true, '#171715'); done('root'); L('coordinator', 'merged: final answer'); st.classList.remove('live'); stt.textContent = 'done'; await wait(3200); } }
+if (RM) { Object.keys(G).forEach(done); stt.textContent = 'done'; L('coordinator','merged: final answer'); } else setTimeout(run, 1200);
+var b = document.getElementById('copy');
+b.addEventListener('click', function(){ var s = 'git clone https://github.com/hahahahahahahahah6/swarm-tree'; function ok(){ b.textContent = 'Copied'; setTimeout(function(){ b.textContent = 'Copy'; }, 1600); } if (navigator.clipboard) navigator.clipboard.writeText(s).then(ok, function(){}); else { var ta = document.createElement('textarea'); ta.value = s; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); ok(); } catch(e){} ta.remove(); } });
+})();
+</script></body></html>
 """
 
 
