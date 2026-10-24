@@ -6,20 +6,20 @@
 <title>swarm-tree studio</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js"></script>
 <style>
-:root{--bg:#0c0e12;--panel:#13161c;--panel2:#1a1e26;--line:#252a34;--line2:#343b48;--text:#e6e8ec;--mute:#8a93a3;--acc:#7c9cff;--err:#ff6b6b;--ok:#4ade80;--key:#9db4ff}
+:root{--bg:#f3f1ea;--panel:#faf8f1;--panel2:#ece9df;--line:rgba(23,23,21,.13);--line2:rgba(23,23,21,.26);--text:#171715;--mute:#77736a;--acc:#c23a22;--err:#b3261e;--ok:#2e7d4f;--key:#c23a22}
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:13px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 code,pre,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 button{font:inherit;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:6px 11px;cursor:pointer;white-space:nowrap}
-button:hover:not(:disabled){border-color:var(--line2);background:#20252f}
-button.pri{background:var(--acc);border-color:var(--acc);color:#0b0d12;font-weight:600}
-button.pri:hover:not(:disabled){background:#93adff}
+button:hover:not(:disabled){border-color:var(--line2);background:#e4e0d2}
+button.pri{background:var(--acc);border-color:var(--acc);color:#f3f1ea;font-weight:600}
+button.pri:hover:not(:disabled){background:#a8341f}
 button.danger:hover:not(:disabled){border-color:var(--err);color:var(--err)}
 button:disabled{opacity:.4;cursor:not-allowed}
-input,select,textarea{font:inherit;color:var(--text);background:#0e1116;border:1px solid var(--line);border-radius:6px;padding:7px 9px;width:100%}
+input,select,textarea{font:inherit;color:var(--text);background:#faf8f1;border:1px solid var(--line);border-radius:6px;padding:7px 9px;width:100%}
 select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--mute) 50%),linear-gradient(135deg,var(--mute) 50%,transparent 50%);background-position:calc(100% - 15px) 52%,calc(100% - 10px) 52%;background-size:5px 5px;background-repeat:no-repeat;padding-right:26px}
 input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc)}
-input::placeholder,textarea::placeholder{color:#4f5664}
+input::placeholder,textarea::placeholder{color:#a39d8e}
 textarea{resize:vertical;min-height:120px}
 .bad{border-color:var(--err)!important}
 header{min-height:52px;display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 14px;border-bottom:1px solid var(--line);background:var(--panel)}
@@ -28,19 +28,19 @@ header h1 span{color:var(--acc)}
 .sep{width:1px;height:20px;background:var(--line);margin:0 4px}
 .sp{flex:1}
 #status{font-size:12px;padding:4px 10px;border-radius:999px;cursor:pointer;border:1px solid transparent}
-#status.ok{color:var(--ok);background:rgba(74,222,128,.08);border-color:rgba(74,222,128,.25)}
-#status.err{color:var(--err);background:rgba(255,107,107,.08);border-color:rgba(255,107,107,.3)}
+#status.ok{color:var(--ok);background:rgba(46,125,79,.10);border-color:rgba(74,222,128,.25)}
+#status.err{color:var(--err);background:rgba(194,58,34,.08);border-color:rgba(255,107,107,.3)}
 #main{display:grid;grid-template-columns:1fr 380px;height:calc(100vh - 52px)}
 #left{display:flex;flex-direction:column;min-width:0;min-height:0;border-right:1px solid var(--line)}
-#canvas{flex:1;position:relative;overflow:hidden;cursor:grab;touch-action:none;background-color:var(--bg);background-image:radial-gradient(#1b1f28 1px,transparent 1px);background-size:22px 22px}
+#canvas{flex:1;position:relative;overflow:hidden;cursor:grab;touch-action:none;background-color:var(--bg);background-image:radial-gradient(rgba(23,23,21,.16) 1px,transparent 1px);background-size:22px 22px}
 #canvas.drag{cursor:grabbing}
 #world{position:absolute;left:0;top:0;transform-origin:0 0}
 .edges{position:absolute;left:0;top:0;overflow:visible;pointer-events:none}
-.edges path{fill:none;stroke:#394151;stroke-width:1.6}
+.edges path{fill:none;stroke:rgba(23,23,21,.30);stroke-width:1.6}
 .node{position:absolute;width:196px;height:66px;background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--pc);border-radius:10px;padding:9px 12px;cursor:pointer;user-select:none;transition:border-color .12s,box-shadow .12s}
 .node:hover{border-color:var(--line2);border-left-color:var(--pc)}
-.node.sel{box-shadow:0 0 0 2px var(--acc),0 8px 28px rgba(0,0,0,.45)}
-.node.bad::after{content:"!";position:absolute;top:-7px;right:-7px;width:16px;height:16px;border-radius:50%;background:var(--err);color:#120707;font:700 11px/16px system-ui;text-align:center}
+.node.sel{box-shadow:0 0 0 2px var(--acc),0 8px 28px rgba(23,23,21,.18)}
+.node.bad::after{content:"!";position:absolute;top:-7px;right:-7px;width:16px;height:16px;border-radius:50%;background:var(--err);color:#f3f1ea;font:700 11px/16px system-ui;text-align:center}
 .nt{display:flex;align-items:center;gap:6px}
 .nt b{flex:1;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .nt b.empty{color:var(--mute);font-style:italic;font-weight:500}
@@ -58,7 +58,7 @@ header h1 span{color:var(--acc)}
 .tab{background:none;border:none;color:var(--mute);padding:5px 10px;border-radius:6px}
 .tab.on{color:var(--text);background:var(--panel2)}
 .tab .n{color:var(--err);margin-left:4px}
-#yaml{flex:1;margin:0;overflow:auto;padding:12px 16px;font-size:12.5px;line-height:1.55;color:#c9ced8;white-space:pre}
+#yaml{flex:1;margin:0;overflow:auto;padding:12px 16px;font-size:12.5px;line-height:1.55;color:#3a3934;white-space:pre}
 #yaml .k{color:var(--key)}#yaml .d{color:var(--mute)}
 #probs{flex:1;overflow:auto;padding:6px 8px;display:none}
 .pr{display:flex;gap:10px;padding:7px 10px;border-radius:6px;cursor:pointer}
@@ -78,16 +78,16 @@ details>summary{cursor:pointer;list-style:none;display:flex;align-items:center;g
 details>summary::-webkit-details-marker{display:none}
 details>summary::before{content:"▸";color:var(--mute);transition:transform .15s}
 details[open]>summary::before{transform:rotate(90deg)}
-.sub{margin:4px 0 12px;padding:12px;border:1px solid var(--line);border-radius:8px;background:#11141a}
+.sub{margin:4px 0 12px;padding:12px;border:1px solid var(--line);border-radius:8px;background:#ece9df}
 .sub>summary{font-size:12px;color:var(--mute)}
 .sub[open]>summary{margin-bottom:10px}
 .sw{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
 .sw input{display:none}
-.sw i{width:36px;height:20px;border-radius:999px;background:#2a303b;position:relative;cursor:pointer;transition:background .15s;flex:none}
-.sw i::after{content:"";position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:#cfd4dc;transition:left .15s}
+.sw i{width:36px;height:20px;border-radius:999px;background:#d8d3c2;position:relative;cursor:pointer;transition:background .15s;flex:none}
+.sw i::after{content:"";position:absolute;top:3px;left:3px;width:14px;height:14px;border-radius:50%;background:#faf8f1;transition:left .15s}
 .sw input:checked+i{background:var(--acc)}
-.sw input:checked+i::after{left:19px;background:#0b0d12}
-.modal{position:fixed;inset:0;background:rgba(5,6,9,.7);display:flex;align-items:center;justify-content:center;z-index:20;padding:16px}
+.sw input:checked+i::after{left:19px;background:#f3f1ea}
+.modal{position:fixed;inset:0;background:rgba(23,23,21,.55);display:flex;align-items:center;justify-content:center;z-index:20;padding:16px}
 .modal[hidden]{display:none}
 .box{width:min(680px,100%);background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px}
 .box textarea{min-height:300px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px}
@@ -290,7 +290,7 @@ function renderTree(){
     if(p){const Q=pos.get(p.id),x1=Q.x+NW/2,y1=Q.y+NH,x2=P.x+NW/2,y2=P.y,m=(y1+y2)/2;edges+=`<path d="M${x1} ${y1}C${x1} ${m} ${x2} ${m} ${x2} ${y2}"/>`}
     let tb='';
     if(n.id===sel){const why=canAdd({n,d});tb=`<div class="tb"><button data-a="add"${why?` disabled title="${esc(why)}"`:''}>+ add child</button>${d?'<button data-a="del" class="danger">delete</button>':''}</div>`}
-    html+=`<div class="node${n.id===sel?' sel':''}${bad.has(n.id)?' bad':''}" data-id="${n.id}" style="left:${P.x}px;top:${P.y}px;--pc:${PCOL[n.provider]||'#4a5160'}">
+    html+=`<div class="node${n.id===sel?' sel':''}${bad.has(n.id)?' bad':''}" data-id="${n.id}" style="left:${P.x}px;top:${P.y}px;--pc:${PCOL[n.provider]||'#77736a'}">
       <div class="nt"><b class="${n.name.trim()?'':'empty'}">${esc(n.name.trim()||'unnamed')}</b><span class="dp">${d?'d'+d:'root'}</span></div>
       <div class="nm"><i></i>${esc(n.provider||'no provider')} · ${esc(n.model.trim()||'no model')}</div>${tb}</div>`;
   });
