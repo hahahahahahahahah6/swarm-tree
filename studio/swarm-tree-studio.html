@@ -101,13 +101,13 @@ details[open]>summary::before{transform:rotate(90deg)}
 <body>
 <header>
   <h1>swarm-tree <span>studio</span></h1>
-  <button id="bNew">New tree</button>
-  <button id="bEx">Load example</button>
-  <button id="bImp">Import</button>
+  <button id="bNew" data-en="New tree" data-zh="新建树">New tree</button>
+  <button id="bEx" data-en="Load example" data-zh="载入示例">Load example</button>
+  <button id="bImp" data-en="Import" data-zh="导入">Import</button>
   <span class="sep"></span>
-  <button id="bYaml">Export YAML</button>
-  <button id="bJson">Export JSON</button>
-  <button id="bCopy" class="pri">Copy YAML</button>
+  <button id="bYaml" data-en="Export YAML" data-zh="导出 YAML">Export YAML</button>
+  <button id="bJson" data-en="Export JSON" data-zh="导出 JSON">Export JSON</button>
+  <button id="bCopy" class="pri" data-en="Copy YAML" data-zh="复制 YAML">Copy YAML</button>
   <span class="sp"></span>
   <span id="status"></span>
 </header>
@@ -115,13 +115,13 @@ details[open]>summary::before{transform:rotate(90deg)}
   <div id="left">
     <div id="canvas">
       <div id="world"></div>
-      <span class="hint chint">Drag to pan · scroll to zoom · Del removes selected node</span>
-      <div class="ctl"><button id="zOut" title="Zoom out">−</button><button id="zIn" title="Zoom in">+</button><button id="zFit" title="Fit to view">⤢</button></div>
+      <span class="hint chint" data-en="Drag to pan · scroll to zoom · Del removes selected node" data-zh="拖拽平移 · 滚轮缩放 · Del 删除选中节点">Drag to pan · scroll to zoom · Del removes selected node</span>
+      <div class="ctl"><button id="zOut" data-ten="Zoom out" data-tzh="缩小" title="Zoom out">−</button><button id="zIn" data-ten="Zoom in" data-tzh="放大" title="Zoom in">+</button><button id="zFit" data-ten="Fit to view" data-tzh="适应视图" title="Fit to view">⤢</button></div>
     </div>
     <div id="bottom">
       <div class="tabs">
-        <button class="tab on" data-tab="yaml">YAML preview</button>
-        <button class="tab" data-tab="probs">Problems<span class="n" id="pc"></span></button>
+        <button class="tab on" data-tab="yaml" data-en="YAML preview" data-zh="YAML 预览">YAML preview</button>
+        <button class="tab" data-tab="probs"><span data-en="Problems" data-zh="问题">Problems</span><span class="n" id="pc"></span></button>
       </div>
       <pre id="yaml" class="mono"></pre>
       <div id="probs"></div>
@@ -131,11 +131,11 @@ details[open]>summary::before{transform:rotate(90deg)}
     <div class="sec" id="insp"></div>
     <div class="sec" id="glob">
       <details open id="gdet">
-        <summary><b>Global settings</b><span class="pill" style="margin-left:auto">root</span></summary>
+        <summary><b data-en="Global settings" data-zh="全局设置">Global settings</b><span class="pill" style="margin-left:auto" data-en="root" data-zh="根">root</span></summary>
         <div style="margin-top:14px">
-          <label class="sw"><span>summary_mode<div class="hint">Children pass compact summaries up</div></span><input type="checkbox" data-g="summary_mode"><i></i></label>
+          <label class="sw"><span>summary_mode<div class="hint" data-en="Children pass compact summaries up" data-zh="子节点向上传递精简摘要">Children pass compact summaries up</div></span><input type="checkbox" data-g="summary_mode"><i></i></label>
           <div class="em" data-e="summary_mode" style="margin:-6px 0 10px"></div>
-          <div class="fl"><span>Summarizer (optional)</span>
+          <div class="fl"><span data-en="Summarizer (optional)" data-zh="摘要器（可选）">Summarizer (optional)</span>
             <div class="grid2">
               <div><select data-g="sum.provider"></select><div class="em" data-e="sum.provider"></div></div>
               <div><input data-g="sum.model" spellcheck="false" placeholder="model"><div class="em" data-e="sum.model"></div></div>
@@ -143,10 +143,10 @@ details[open]>summary::before{transform:rotate(90deg)}
           </div>
           <div class="grid2">
             <label class="fl"><span>max_concurrency</span><input data-g="max_concurrency" inputmode="numeric"><div class="em" data-e="max_concurrency"></div></label>
-            <label class="fl"><span>timeout (secs)</span><input data-g="timeout" inputmode="decimal"><div class="em" data-e="timeout"></div></label>
+            <label class="fl"><span data-en="timeout (secs)" data-zh="超时（秒）">timeout (secs)</span><input data-g="timeout" inputmode="decimal"><div class="em" data-e="timeout"></div></label>
             <label class="fl"><span>max_children</span><input data-g="max_children" inputmode="numeric"><div class="em" data-e="max_children"></div></label>
           </div>
-          <p class="hint" style="margin:2px 0 4px">Output length is a CLI flag, not part of the file: <code>swarm-tree run --max-tokens 2048</code> (default 1024).</p>
+          <p class="hint" style="margin:2px 0 4px">Output length is a CLI flag, not part of the file: <code>swarm-tree run --max-tokens 2048</code><span data-en=" (default 1024)." data-zh="（默认 1024）。"> (default 1024).</span></p>
         </div>
       </details>
     </div>
@@ -155,21 +155,27 @@ details[open]>summary::before{transform:rotate(90deg)}
 
 <div class="modal" id="modal" hidden>
   <div class="box">
-    <div class="sh"><span>Import tree</span><button data-m="close">✕</button></div>
-    <p class="hint" style="margin-top:-4px">Paste YAML or JSON — the same file you pass to <code>swarm-tree run --tree</code>.</p>
+    <div class="sh"><span data-en="Import tree" data-zh="导入树">Import tree</span><button data-m="close">✕</button></div>
+    <p class="hint" style="margin-top:-4px"><span data-en="Paste YAML or JSON — the same file you pass to" data-zh="粘贴 YAML 或 JSON——就是传给">Paste YAML or JSON — the same file you pass to</span> <code>swarm-tree run --tree</code>.</p>
     <textarea id="imp" spellcheck="false" placeholder="name: orchestrator&#10;provider: anthropic&#10;model: claude-sonnet-4-5&#10;role: ...&#10;children: []"></textarea>
     <div class="em" id="imperr"></div>
     <div class="row" style="margin-top:12px">
-      <label class="filebtn">Open file…<input type="file" id="impfile" accept=".yaml,.yml,.json,.txt" hidden></label>
+      <label class="filebtn"><span data-en="Open file…" data-zh="打开文件…">Open file…</span><input type="file" id="impfile" accept=".yaml,.yml,.json,.txt" hidden></label>
       <span class="sp"></span>
-      <button data-m="close">Cancel</button>
-      <button class="pri" id="impgo">Import</button>
+      <button data-m="close" data-en="Cancel" data-zh="取消">Cancel</button>
+      <button class="pri" id="impgo" data-en="Import" data-zh="导入">Import</button>
     </div>
   </div>
 </div>
 <div id="toast"></div>
 
 <script>
+var SLANG=(function(){var m=document.cookie.match(/(?:^|; )lang=(en|zh)/);if(m)return m[1];return (navigator.language||'en').slice(0,2)==='zh'?'zh':'en';})();
+var STR={en:{agent_node:'Agent node',root_node:'Root node',example_loaded:'Example loaded',new_tree_created:'New tree created',paste_first:'Paste a YAML or JSON tree first.',role_label:'Role (system prompt)',tree_imported:st('tree_imported'),confirm_replace:'Replace the current tree with the example?'},
+zh:{agent_node:'智能体节点',root_node:'根节点',example_loaded:'示例已载入',new_tree_created:'已新建树',paste_first:'请先粘贴 YAML 或 JSON 树。',role_label:'角色（系统提示词）',tree_imported:'树已导入',confirm_replace:'用示例替换当前这棵树？'}};
+function st(k){return (STR[SLANG]&&STR[SLANG][k])||STR.en[k]||k;}
+function applyLang(){var els=document.querySelectorAll('[data-en]');for(var i=0;i<els.length;i++){var el=els[i];el.innerHTML=SLANG==='zh'?el.getAttribute('data-zh'):el.getAttribute('data-en');}var ts=document.querySelectorAll('[data-ten]');for(var j=0;j<ts.length;j++){var te=ts[j];te.setAttribute('title',SLANG==='zh'?te.getAttribute('data-tzh'):te.getAttribute('data-ten'));}}
+applyLang();
 const PROVIDERS=['anthropic','openai','gemini','xai','deepseek'];
 const HINT={anthropic:'claude-sonnet-4-5',openai:'gpt-5',gemini:'gemini-2.5-pro',xai:'grok-4',deepseek:'deepseek-chat'};
 const PCOL={anthropic:'#d9a57c',openai:'#6fd3a8',gemini:'#7aa7ff',xai:'#c3c6cf',deepseek:'#a08cff'};
@@ -304,11 +310,11 @@ const hint=p=>HINT[p]?`e.g. ${HINT[p]}`:'pick a provider first';
 function renderInspector(){
   let r=find(sel);if(!r){sel=T.id;r=find(sel)}
   const{n,d}=r,why=canAdd(r);
-  $('#insp').innerHTML=`<div class="sh"><span>${d?'Agent node':'Root node'}</span><span class="pill">depth ${d} · ${n.children.length} child${n.children.length===1?'':'ren'}</span></div>
+  $('#insp').innerHTML=`<div class="sh"><span>${d?st('agent_node'):st('root_node')}</span><span class="pill">depth ${d} · ${n.children.length} child${n.children.length===1?'':'ren'}</span></div>
     ${fld('Name',`<input data-f="name" value="${esc(n.name)}" spellcheck="false" autocomplete="off">`,'name')}
     ${fld('Provider',`<select data-f="provider">${provOpts(n.provider,'Select provider…')}</select>`,'provider')}
     ${fld('Model',`<input data-f="model" value="${esc(n.model)}" placeholder="${hint(n.provider)}" spellcheck="false" autocomplete="off">`,'model')}
-    ${fld('Role (system prompt)',`<textarea data-f="role" placeholder="You are a…">${esc(n.role)}</textarea>`,'role')}
+    ${fld(st('role_label'),`<textarea data-f="role" placeholder="You are a…">${esc(n.role)}</textarea>`,'role')}
     ${d?`<details class="sub"${n.summarizer.provider||n.summarizer.model?' open':''}><summary>Summarizer override (optional)</summary>
       <div class="grid2"><div><select data-f="sum.provider">${provOpts(n.summarizer.provider,'(inherit)')}</select><div class="em" data-e="sum.provider"></div></div>
       <div><input data-f="sum.model" value="${esc(n.summarizer.model)}" placeholder="${HINT[n.summarizer.provider]||'model'}" spellcheck="false"><div class="em" data-e="sum.model"></div></div></div></details>`
@@ -416,8 +422,8 @@ $('#probs').addEventListener('click',e=>{
 });
 $('#status').onclick=()=>showTab(ERR.length?'probs':'yaml');
 $$('.tab').forEach(b=>b.onclick=()=>showTab(b.dataset.tab));
-$('#bNew').onclick=()=>{if(!confirm('Discard the current tree and start a new one?'))return;loadObj({name:'orchestrator',provider:'anthropic',model:'claude-sonnet-4-5',role:''});toast('New tree created')};
-$('#bEx').onclick=()=>{if(!confirm('Replace the current tree with the example?'))return;loadObj(EXAMPLE);toast('Example loaded')};
+$('#bNew').onclick=()=>{if(!confirm('Discard the current tree and start a new one?'))return;loadObj({name:'orchestrator',provider:'anthropic',model:'claude-sonnet-4-5',role:''});toast(st('new_tree_created'))};
+$('#bEx').onclick=()=>{if(!confirm(st('confirm_replace')))return;loadObj(EXAMPLE);toast(st('example_loaded'))};
 $('#bYaml').onclick=()=>guard()&&download(slug()+'.yaml',toYaml(),'text/yaml');
 $('#bJson').onclick=()=>guard()&&download(slug()+'.json',toJson(),'application/json');
 $('#bCopy').onclick=()=>guard()&&copy(toYaml());
@@ -426,10 +432,10 @@ $('#bImp').onclick=()=>{$('#imperr').textContent='';modal.hidden=false;$('#imp')
 modal.addEventListener('click',e=>{if(e.target===modal||e.target.closest('[data-m="close"]'))modal.hidden=true});
 $('#impfile').onchange=async e=>{const f=e.target.files[0];if(f)$('#imp').value=await f.text();e.target.value=''};
 $('#impgo').onclick=()=>{
-  const txt=$('#imp').value;if(!txt.trim())return $('#imperr').textContent='Paste a YAML or JSON tree first.';
+  const txt=$('#imp').value;if(!txt.trim())return $('#imperr').textContent=st('paste_first');
   let o;try{o=jsyaml.load(txt)}catch(err){return $('#imperr').textContent='Parse error: '+err.message}
   try{const warn=loadObj(o);modal.hidden=true;$('#imp').value='';
-    toast(warn.length?`Imported with ${warn.length} warning${warn.length>1?'s':''}: ${warn.slice(0,2).join('; ')}${warn.length>2?'…':''}`:'Tree imported',warn.length?'err':'')}
+    toast(warn.length?`Imported with ${warn.length} warning${warn.length>1?'s':''}: ${warn.slice(0,2).join('; ')}${warn.length>2?'…':''}`:st('tree_imported'),warn.length?'err':'')}
   catch(err){$('#imperr').textContent=err.message}
 };
 document.addEventListener('keydown',e=>{
