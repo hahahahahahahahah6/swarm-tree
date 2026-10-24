@@ -1,0 +1,121 @@
+# Operating loop: the 7-step loop, in swarm-tree form.
+#
+# Borrowed from Simon Lin's e-commerce AI loop (see README, "Operating
+# loop"): data first, one recommendation, CEO rollup, owner decides,
+# worker prepares up to the last click, an INDEPENDENT verifier checks
+# the work, and tomorrow's data feeds the next round.
+#
+# This is a serve-mode template, not a sequential pipeline. swarm-tree
+# serve mode runs each scheduled node on its own cadence; the "steps"
+# below are ordered by staggered daily times, and each node reads the
+# previous node's latest output with `swarm-tree report --node <name>`
+# before it acts. Nothing here publishes, charges, or sends anything on
+# its own: execution stops at the owner queue (DECISION: lines).
+#
+# Run it for $0.00 first:
+#   swarm-tree serve --tree examples/loop-7step.yaml --dry-run --once
+#   swarm-tree status --tree examples/loop-7step.yaml
+#   swarm-tree queue --tree examples/loop-7step.yaml
+#
+# Adapt it: replace the data source in data-agent's trigger/task, the
+# acceptance criteria in verifier-agent's task, and the schedules to
+# fit your own shop / project. Keep the verifier on a different
+# provider from the worker, or it is just the worker approving itself.
+name: ceo
+provider: anthropic
+model: claude-sonnet-4-5
+role: >-
+  You are the chief-of-staff. Aggregate the day's node outputs into
+  one concise markdown briefing: headlines per node, notable changes
+  with numbers, and items needing the human's attention. Never invent
+  numbers: only repeat numbers a node actually reported. End the
+  briefing with the pending owner queue.
+rollup: true
+serve_dir: ./serve-data
+children:
+  # 1. DATA FIRST. No data, no AI: pull, clean, and snapshot today's
+  #    data before any other node reasons about it. The trigger hashes
+  #    the data source; when nothing changed, this tick costs $0.00.
+  - name: data-agent
+    provider: deepseek
+    model: deepseek-chat
+    role: >-
+      You pull and clean data. Report only what you actually saw,
+      with the source and the snapshot time. Never invent numbers.
+    schedule: "08:00"
+    task: >-
+      Pull today's orders, traffic and inventory from the real data
+      source (replace the trigger below with it), clean it, and report
+      totals plus anything that failed to pull.
+    trigger: "md5sum data/orders.csv 2>/dev/null || echo no-data"
+    budget_usd: 1.0
+  # 2. LOOK AT THE NUMBERS. Traffic, add-to-cart, orders, conversion:
+  #    what moved, by how much, and what looks anomalous.
+  - name: analyst-agent
+    provider: gemini
+    model: gemini-2.5-flash
+    role: >-
+      You read data-agent's latest output and flag anomalies with
+      numbers. State the change, the size of the change, and why it
+      matters. No numbers that data-agent did not report.
+    schedule: "08:15"
+    task: >-
+      Read data-agent's latest output. Report today's traffic,
+      add-to-cart, orders and conversion, what moved versus yesterday,
+      and the single most suspicious anomaly.
+    budget_usd: 1.0
+  # 3. ONE RECOMMENDATION ONLY. A list of ten suggestions is a list of
+  #    zero decisions. One recommendation, with evidence, cost and risk,
+  #    plus a DECISION: line so the owner can approve it in one click.
+  - name: advisor-agent
+    provider: anthropic
+    model: claude-sonnet-4-5
+    role: >-
+      You turn analyst-agent's latest output into exactly ONE
+      recommendation. Give the evidence, the expected effect, the cost
+      and the risk. End with a DECISION: line for the owner.
+    schedule: "08:30"
+    task: >-
+      Read analyst-agent's latest output. Propose exactly one action
+      for today, with evidence, expected effect, cost and risk.
+    budget_usd: 2.0
+  # 4 + 5. OWNER DECIDES, WORKER PREPARES. The owner queue is the gate:
+  #    the worker prepares everything up to the last click and never
+  #    publishes, charges or sends on its own.
+  - name: worker-agent
+    provider: openai
+    model: gpt-5
+    role: >-
+      You prepare execution, never final execution. Turn the
+      approved recommendation into exact steps, drafts and a rollback
+      plan. Do NOT publish, charge, send or change live data. If no
+      recommendation was approved, say so and stop.
+    schedule: "09:00"
+    task: >-
+      Read advisor-agent's latest output and the owner queue. If a
+      recommendation was approved, prepare its exact execution steps,
+      drafts and rollback plan. Otherwise report that nothing was
+      approved and do nothing.
+    budget_usd: 2.0
+  # 6. INDEPENDENT VERIFICATION. The verifier must not be the worker:
+  #    different provider, different model, and it reads the worker's
+  #    output fresh. A FAIL is a veto via DECISION:, not a polite note.
+  - name: verifier-agent
+    provider: deepseek
+    model: deepseek-chat
+    role: >-
+      You verify worker-agent's latest output against its own
+      acceptance criteria. You are not the worker and you do not
+      re-do its work. Output VERDICT: PASS or VERDICT: FAIL, with the
+      exact reasons. On FAIL, end with a DECISION: line saying do not
+      proceed, and what must be fixed first.
+    schedule: "09:30"
+    task: >-
+      Read worker-agent's latest output. Check every step and draft
+      against the approved recommendation and its acceptance criteria.
+      Report VERDICT: PASS or VERDICT: FAIL with reasons.
+    budget_usd: 1.0
+  # 7. FEEDBACK IS THE NEXT TRIGGER. Tomorrow's data-agent tick runs
+  #    only if its trigger hash changed, so the loop costs $0.00 on a
+  #    quiet day and re-runs on a real change. That is the loop: data
+  #    in, decision out, verification in between, data back in.
