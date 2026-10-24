@@ -44,18 +44,98 @@ def _js(value):
     return json.dumps(value).replace('<', '\\u003c').replace('>', '\\u003e').replace('&', '\\u0026')
 
 
+APP_CSS = """
+:root{--paper:#f3f1ea;--paper2:#ece9df;--ink:#171715;--ink2:#3a3934;--mute:#77736a;
+--line:rgba(23,23,21,.13);--line2:rgba(23,23,21,.26);--accent:#c23a22;
+--sans:-apple-system,BlinkMacSystemFont,"Helvetica Neue","Hiragino Sans","Apple SD Gothic Neo","Segoe UI","Noto Sans",Arial,sans-serif;
+--mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{background:var(--paper);color:var(--ink);font:16px/1.6 var(--sans);-webkit-font-smoothing:antialiased}
+a{color:inherit}
+.wrap{max-width:1000px;margin:0 auto;padding:0 24px}
+nav{position:sticky;top:0;z-index:10;background:rgba(243,241,234,.9);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+nav .wrap{display:flex;align-items:center;justify-content:space-between;height:60px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:15px;letter-spacing:-.01em}
+.brand svg{width:20px;height:20px}
+.links{display:flex;gap:22px;align-items:center;font-size:13.5px;color:var(--ink2)}
+.links a{position:relative;text-decoration:none}
+.links a:hover{color:var(--ink)}
+main.wrap{padding-top:52px;padding-bottom:110px;min-height:72vh}
+h1{font-size:clamp(32px,5vw,50px);line-height:1.05;letter-spacing:-.04em;font-weight:600;margin-bottom:10px}
+.eyebrow{font:12px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--mute);display:flex;align-items:center;gap:12px;margin-bottom:26px}
+.eyebrow b{width:8px;height:8px;background:var(--accent);display:inline-block}
+h2{font-size:23px;letter-spacing:-.02em;font-weight:600;margin:60px 0 6px}
+label{display:block;font:11.5px/1.6 var(--mono);letter-spacing:.09em;text-transform:uppercase;color:var(--mute);margin:22px 0 8px}
+input[type=email],input[type=password],input[type=text],textarea,select{font:15px/1.5 var(--sans);background:transparent;border:1px solid var(--line2);color:var(--ink);padding:12px 14px;width:100%;max-width:560px;border-radius:0}
+input:focus,textarea:focus,select:focus{outline:none;border-color:var(--accent)}
+textarea{min-height:150px;font-family:var(--mono);font-size:13px;line-height:1.7;resize:vertical}
+select{max-width:280px}
+.btn{display:inline-block;background:var(--ink);color:var(--paper);border:0;padding:13px 24px;font-size:14px;font-weight:500;cursor:pointer;margin-top:26px;text-decoration:none;transition:background .25s}
+.btn:hover{background:var(--accent)}
+.link-btn{background:none;border:0;color:var(--mute);font-size:13.5px;cursor:pointer;text-decoration:underline;text-underline-offset:3px;padding:0}
+.link-btn:hover{color:var(--accent)}
+.error{color:var(--accent);font-size:14px;margin:14px 0}
+.mute{color:var(--mute)}
+.card{border:1px solid var(--line2);padding:20px;background:rgba(255,255,255,.35);margin:18px 0}
+.row{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:15px 0;border-bottom:1px solid var(--line)}
+.row:first-child{border-top:1px solid var(--line)}
+.task{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ops{display:flex;gap:18px;align-items:center;font-size:14px;flex:none}
+.ops a{text-decoration:underline;text-underline-offset:3px;color:var(--ink2)}
+.ops a:hover{color:var(--accent)}
+form.inline,form.logout{display:inline}
+.pill{font:10.5px/1 var(--mono);letter-spacing:.07em;text-transform:uppercase;border:1px solid var(--line2);padding:6px 11px;color:var(--ink2);white-space:nowrap}
+.pill.running,.pill.on{color:var(--accent);border-color:var(--accent)}
+.grid-img{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:16px;margin-top:20px}
+.grid-img .card{margin:0;padding:14px}
+.grid-img img{width:100%;display:block;border:1px solid var(--line)}
+.grid-img figcaption{font-size:12.5px;color:var(--ink2);margin-top:10px;line-height:1.5}
+pre{background:var(--paper2);border:1px solid var(--line);padding:18px;font:12.5px/1.7 var(--mono);overflow-x:auto;white-space:pre-wrap;overflow-wrap:anywhere;margin-top:16px;color:var(--ink2)}
+.status-line{color:var(--ink2);display:flex;align-items:center;gap:12px;margin-bottom:4px}
+.auth{max-width:430px;margin:30px auto 0}
+.switch{margin-top:26px;font-size:14px;color:var(--ink2)}
+.switch a{text-decoration:underline;text-underline-offset:3px}
+.lede-sm{color:var(--ink2);max-width:600px;margin:6px 0 4px;font-size:15px}
+.key-row{display:flex;justify-content:space-between;align-items:center;gap:18px}
+.prov-name{font:12.5px var(--mono);letter-spacing:.08em;text-transform:uppercase;margin-bottom:10px}
+.key-form{display:flex;gap:14px;align-items:center}
+.key-form input{max-width:300px;margin:0}
+footer{border-top:1px solid var(--line);padding:34px 0 44px;color:var(--mute);font-size:13px}
+footer .wrap{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}
+footer a{color:var(--ink2);text-decoration:none}
+@media (max-width:640px){
+:root{--g:16px}
+.wrap{padding:0 16px}
+.links{gap:14px;font-size:12.5px}
+.row{flex-direction:column;align-items:flex-start;gap:8px}
+.key-row{flex-direction:column;align-items:stretch}
+.key-form input{max-width:none}
+h2{margin-top:44px}
+}
+"""
+
+
 def _page(title, body, user=None):
-    nav = ('<a href="/dashboard">Dashboard</a> <a href="/images">Images</a> '
-           '<a href="/settings/keys">Keys</a> '
-           '<form action="/logout" method="post" style="display:inline"><button>Log out</button></form>') if user else (
-               '<a href="/login">Login</a> <a href="/signup">Sign up</a>')
-    return f'''<!doctype html><html><head><meta charset="utf-8">
-<title>{escape(title)}</title><style>
-body{{font:16px system-ui;max-width:1000px;margin:32px auto;padding:0 20px;background:#fafafa;color:#222}}
-nav,a{{margin-right:12px}}input,textarea,select,button{{font:inherit;padding:8px;margin:6px 0}}
-label{{display:block}}textarea{{display:block;width:95%;min-height:180px}}pre{{white-space:pre-wrap;overflow-wrap:anywhere}}
-.card{{padding:16px;background:white;border:1px solid #ddd;margin:12px 0}}img{{max-width:240px}}.error{{color:#a00}}
-</style></head><body><nav>{nav}</nav><h1>{escape(title)}</h1>{body}</body></html>'''
+    logo = ('<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 5v5M10 10H4.5v4.5'
+            'M10 10h5.5v4.5" fill="none" stroke="#171715" stroke-width="1.2"/>'
+            '<circle cx="10" cy="4" r="2.4" fill="#c23a22"/>'
+            '<circle cx="4.5" cy="16" r="2" fill="#171715"/>'
+            '<circle cx="15.5" cy="16" r="2" fill="#171715"/></svg>')
+    links = (f'<a href="/dashboard">Dashboard</a><a href="/images">Images</a>'
+             '<a href="/settings/keys">Keys</a>'
+             '<form action="/logout" method="post" class="logout"><button class="link-btn">Log out</button></form>') if user else (
+                 '<a href="/login">Log in</a><a href="/signup">Sign up</a>')
+    return f'''<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{escape(title)} &middot; Swarm Tree</title><link rel="icon" href="data:,">
+<style>{APP_CSS}</style></head>
+<body><nav><div class="wrap"><a class="brand" href="/">{logo}Swarm Tree</a>
+<div class="links">{links}</div></div></nav>
+<main class="wrap"><h1>{escape(title)}</h1>{body}</main>
+<footer><div class="wrap"><span>tree.haocoach.com</span>
+<a href="https://github.com/hahahahahahahahah6/swarm-tree">GitHub</a></div></div>
+</body></html>'''
 
 
 def require_login(fn):
@@ -497,10 +577,18 @@ class Handler(BaseHTTPRequestHandler):
 
     def auth_form(self, error='', status=200):
         action = self.route_path
-        self.page('Sign up' if action == '/signup' else 'Login',
-                  f'<p class="error">{escape(error)}</p><form method="post" action="{action}">'
-                  '<label>Email <input type="email" name="email" required></label>'
-                  '<label>Password <input type="password" name="password" required></label><button>Continue</button></form>', status)
+        is_signup = action == '/signup'
+        title = 'Sign up' if is_signup else 'Login'
+        other_href, other_text = ('/login', 'Log in') if is_signup else ('/signup', 'Sign up')
+        other_line = ('Already have an account' if is_signup else 'New here')
+        err = f'<p class="error">{escape(error)}</p>' if error else ''
+        self.page(title,
+                  '<div class="auth"><div class="eyebrow"><b></b>Account</div>' + err +
+                  f'<form method="post" action="{action}">'
+                  '<label>Email</label><input type="email" name="email" required autocomplete="email">'
+                  '<label>Password</label><input type="password" name="password" required autocomplete="current-password">'
+                  '<button class="btn">Continue</button></form>'
+                  f'<p class="switch">{other_line}? <a href="{other_href}">{other_text}</a></p></div>', status)
 
     def authenticate(self):
         ip = self.client_address[0]
@@ -538,25 +626,41 @@ class Handler(BaseHTTPRequestHandler):
         self.redirect('/login', self.session_cookie())
 
     def run_list(self, rows):
-        return '<ul>' + ''.join(f'<li><a href="/runs/{r["id"]}">{escape(r["task"])}</a> — {escape(r["status"])}</li>' for r in rows) + '</ul>'
+        items = ''.join(
+            f'<div class="row"><a class="task" href="/runs/{r["id"]}">{escape(r["task"])}</a>'
+            f'<span class="pill {escape(r["status"])}">{escape(r["status"])}</span></div>' for r in rows)
+        return f'<div class="runs">{items or "<p class=\'mute\'>No runs yet.</p>"}</div>'
 
     def image_grid(self, rows):
-        return ''.join(f'<div class="card"><img src="/images/{r["id"]}.png" alt="{escape(r["prompt"])}"><p>{escape(r["prompt"])}</p></div>' for r in rows)
+        return '<div class="grid-img">' + ''.join(
+            f'<figure class="card"><img src="/images/{r["id"]}.png" alt="{escape(r["prompt"])}" loading="lazy">'
+            f'<figcaption>{escape(r["prompt"])}</figcaption></figure>' for r in rows) + '</div>'
 
     @require_login
     def dashboard(self, cookie=None):
         uid = self.user['id']
-        trees = ''.join(f'<li>{escape(t["name"])} <a href="/trees/{t["id"]}/edit">Edit</a> '
-                        f'<a href="/chat?tree={t["id"]}">Chat</a><form method="post" action="/trees/{t["id"]}/delete"><button>Delete</button></form></li>' for t in db.list_trees(uid))
-        self.page('Dashboard', '<a href="/trees/new">New tree</a><ul>' + trees + '</ul><h2>Recent runs</h2>' +
-                  self.run_list(db.list_runs(uid, limit=10)) + '<h2>Recent images</h2>' + self.image_grid(db.list_images(uid, limit=8)),
+        trees = ''.join(
+            f'<div class="row"><span class="task">{escape(t["name"])}</span><span class="ops">'
+            f'<a href="/trees/{t["id"]}/edit">Edit</a><a href="/chat?tree={t["id"]}">Chat</a>'
+            f'<form method="post" action="/trees/{t["id"]}/delete" class="inline">'
+            '<button class="link-btn">Delete</button></form></span></div>' for t in db.list_trees(uid))
+        self.page('Dashboard',
+                  '<div class="eyebrow"><b></b>Your agent trees</div>'
+                  '<a class="btn" href="/trees/new" style="margin-top:0">New tree</a>'
+                  f'<div class="runs" style="margin-top:22px">{trees or "<p class=\'mute\'>No trees yet. Create one to get started.</p>"}</div>'
+                  '<h2>Recent runs</h2>' + self.run_list(db.list_runs(uid, limit=10)) +
+                  '<h2>Recent images</h2>' + self.image_grid(db.list_images(uid, limit=8)),
                   headers={'Set-Cookie': cookie} if cookie else None)
 
     @require_login
     def new_tree(self):
         example = json.dumps({'name': 'assistant', 'provider': 'openai', 'model': 'gpt-5', 'role': 'You are a helpful assistant.'}, indent=2)
-        self.page('New tree', '<form method="post" action="/trees"><label>Name <input name="name" required></label>'
-                  f'<textarea name="yaml_text">{escape(example)}</textarea><button>Create</button></form>')
+        self.page('New tree',
+                  '<div class="eyebrow"><b></b>Define in JSON or YAML</div>'
+                  '<form method="post" action="/trees"><label>Name</label>'
+                  f'<input type="text" name="name" required placeholder="my-assistant">'
+                  f'<label>Tree definition</label><textarea name="yaml_text">{escape(example)}</textarea>'
+                  '<button class="btn">Create tree</button></form>')
 
     @require_login
     def create_tree(self):
@@ -595,8 +699,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def editor(self, tree_id, text, error=''):
         studio = STUDIO.read_text(encoding='utf-8')
-        injected = '''<div style="position:fixed;bottom:16px;right:20px;z-index:10000;background:#222;padding:12px">
-<button id="web-save">Save</button> <span id="web-save-status" role="status"></span> <a href="/dashboard">Dashboard</a></div>
+        injected = '''<div style="position:fixed;bottom:16px;right:20px;z-index:10000;background:#f3f1ea;border:1px solid rgba(23,23,21,.26);padding:10px 14px;font:13px -apple-system,system-ui,sans-serif;color:#171715">
+<button id="web-save" style="background:#171715;color:#f3f1ea;border:0;padding:8px 16px;font:inherit;cursor:pointer">Save</button> <span id="web-save-status" role="status" style="margin:0 10px"></span> <a href="/dashboard" style="color:#171715">Dashboard</a></div>
 <script>
 window.addEventListener('load',()=>{
 const status=document.getElementById('web-save-status');
@@ -625,8 +729,11 @@ status.textContent=response.ok&&result.ok?'Saved':(result.errors||['Save failed'
         tree = db.get_tree(tree_id, self.user['id'])
         if tree is None:
             return self.page('Not found', 'Tree not found', 404)
-        self.page('Chat: ' + tree['name'], f'<form method="post" action="/chat"><input type="hidden" name="tree_id" value="{tree_id}">'
-                  '<textarea name="message" required></textarea><button>Send</button></form><h2>Prior runs</h2>' +
+        self.page('Chat · ' + tree['name'],
+                  '<div class="eyebrow"><b></b>Talk to the tree</div>'
+                  f'<form method="post" action="/chat"><input type="hidden" name="tree_id" value="{tree_id}">'
+                  '<label>Message</label><textarea name="message" required placeholder="Ask the tree anything&hellip;"></textarea>'
+                  '<button class="btn">Send</button></form><h2>Prior runs</h2>' +
                   self.run_list(db.list_runs(self.user['id'], tree_id=tree_id)))
 
     @require_login
@@ -666,7 +773,9 @@ status.textContent=response.ok&&result.ok?'Saved':(result.errors||['Save failed'
             return self.page('Not found', 'Run not found', 404)
         if events:
             return self.events(run_id)
-        body = f'<p>Status: {escape(row["status"])}</p><div id="transcript"><pre>{escape(row["transcript_json"] or "Running…")}</pre></div>'
+        body = (f'<p class="status-line">Status <span class="pill {escape(row["status"])}">'
+                f'{escape(row["status"])}</span></p>'
+                f'<div id="transcript"><pre>{escape(row["transcript_json"] or "Running…")}</pre></div>')
         if row['status'] == 'running':
             body += f'''<script>const stream=new EventSource('/runs/{run_id}/events');
 stream.addEventListener('done',async()=>{{stream.close();const r=await fetch('/runs/{run_id}');
@@ -715,16 +824,23 @@ stream.onerror=()=>{{stream.close();setTimeout(()=>location.reload(),1500)}};</s
                     db.set_key(uid, provider, self.fields[provider].strip())
             return self.redirect('/settings/keys')
         statuses = db.keys_status(uid)
-        body = '<form method="post">' + ''.join(
-            f'<label>{p} ({"set" if statuses.get(p) else "not set"}) '
-            f'<input type="password" name="{p}" autocomplete="new-password"> '
-            f'<button name="delete_{p}" value="1">Delete</button></label>' for p in PROVIDERS)
-        self.page('Provider keys', body + '<button>Save keys</button></form>')
+        rows = ''.join(
+            f'<div class="card key-row"><div><div class="prov-name">{p}</div>'
+            f'<span class="pill {"on" if statuses.get(p) else ""}">{"set" if statuses.get(p) else "not set"}</span></div>'
+            f'<div class="key-form"><input type="password" name="{p}" autocomplete="new-password" placeholder="Paste new key">'
+            f'<button class="link-btn" name="delete_{p}" value="1">Delete</button></div></div>' for p in PROVIDERS)
+        self.page('Provider keys',
+                  '<div class="eyebrow"><b></b>Bring your own key</div>'
+                  '<p class="lede-sm">Keys are stored for your account only and never shown again. Paste a key to set or replace it.</p>'
+                  '<form method="post">' + rows + '<button class="btn">Save keys</button></form>')
 
     @require_login
     def image_page(self):
-        self.page('Images', '<form method="post"><select name="provider"><option>openai</option><option>gemini</option></select>'
-                  '<textarea name="prompt" required></textarea><button>Generate</button></form>' +
+        self.page('Images',
+                  '<div class="eyebrow"><b></b>Generate</div>'
+                  '<form method="post"><label>Provider</label><select name="provider"><option>openai</option><option>gemini</option></select>'
+                  '<label>Prompt</label><textarea name="prompt" required placeholder="A quiet studio portrait&hellip;"></textarea>'
+                  '<button class="btn">Generate</button></form><h2>Gallery</h2>' +
                   self.image_grid(db.list_images(self.user['id'], limit=100)))
 
     @require_login
